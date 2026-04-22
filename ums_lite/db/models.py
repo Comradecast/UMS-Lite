@@ -17,7 +17,7 @@ class TournamentState(str, Enum):
 class MatchStatus(str, Enum):
     PENDING = "PENDING"
     ACTIVE = "ACTIVE"
-    REPORTED = "REPORTED"
+    AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
     DISPUTED = "DISPUTED"
     RESOLVED = "RESOLVED"
 
