@@ -89,6 +89,22 @@ class TournamentRepo(BaseRepo):
             created_at=_parse_datetime(row['created_at'])
         )
 
+    def get_active_by_guild(self, guild_id: str) -> Optional[Tournament]:
+        # Active is anything not COMPLETED or CANCELLED
+        row = self._execute(
+            "SELECT * FROM tournaments WHERE guild_id = ? AND state NOT IN (?, ?) ORDER BY created_at DESC LIMIT 1",
+            (guild_id, TournamentState.COMPLETED.value, TournamentState.CANCELLED.value)
+        ).fetchone()
+        if not row:
+            return None
+        return Tournament(
+            id=_parse_uuid(row['id']),
+            guild_id=row['guild_id'],
+            name=row['name'],
+            state=TournamentState(row['state']),
+            created_at=_parse_datetime(row['created_at'])
+        )
+
     def save(self, tournament: Tournament) -> None:
         self._execute(
             """
@@ -167,6 +183,25 @@ class MatchRepo(BaseRepo):
             next_match_slot=row['next_match_slot']
         )
 
+    def get_by_tournament(self, tournament_id: uuid.UUID) -> List[Match]:
+        rows = self._execute(
+            "SELECT * FROM matches WHERE tournament_id = ? ORDER BY round_number, match_number",
+            (_format_uuid(tournament_id),)
+        ).fetchall()
+
+        return [Match(
+            id=_parse_uuid(row['id']),
+            tournament_id=_parse_uuid(row['tournament_id']),
+            round_number=row['round_number'],
+            match_number=row['match_number'],
+            player1_id=row['player1_id'],
+            player2_id=row['player2_id'],
+            winner_id=row['winner_id'],
+            status=MatchStatus(row['status']),
+            next_match_id=_parse_uuid(row['next_match_id']),
+            next_match_slot=row['next_match_slot']
+        ) for row in rows]
+
     def save(self, match: Match) -> None:
         self._execute(
             """
@@ -195,6 +230,20 @@ class MatchRepo(BaseRepo):
         )
 
 class ReportRepo(BaseRepo):
+    def get_by_match(self, match_id: uuid.UUID) -> List[MatchReport]:
+        rows = self._execute(
+            "SELECT * FROM match_reports WHERE match_id = ? ORDER BY reported_at ASC",
+            (_format_uuid(match_id),)
+        ).fetchall()
+
+        return [MatchReport(
+            id=_parse_uuid(row['id']),
+            match_id=_parse_uuid(row['match_id']),
+            reporter_id=row['reporter_id'],
+            claimed_winner_id=row['claimed_winner_id'],
+            reported_at=_parse_datetime(row['reported_at'])
+        ) for row in rows]
+
     def create(self, report: MatchReport) -> None:
         self._execute(
             """
