@@ -34,7 +34,8 @@ class DatabaseSchema:
         player_id TEXT NOT NULL,
         joined_at TIMESTAMP NOT NULL,
         FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
-        FOREIGN KEY (player_id) REFERENCES player_profiles (discord_id)
+        FOREIGN KEY (player_id) REFERENCES player_profiles (discord_id),
+        UNIQUE(tournament_id, player_id)
     );
 
     CREATE TABLE IF NOT EXISTS matches (
@@ -47,6 +48,7 @@ class DatabaseSchema:
         winner_id TEXT,
         status TEXT NOT NULL,
         next_match_id TEXT,
+        next_match_slot INTEGER,
         FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
         FOREIGN KEY (player1_id) REFERENCES player_profiles (discord_id),
         FOREIGN KEY (player2_id) REFERENCES player_profiles (discord_id),
@@ -86,7 +88,9 @@ class DatabaseSession:
     def connect(self):
         """Establish the database connection and enable foreign keys."""
         if not self._conn:
-            self._conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+            # We omit PARSE_DECLTYPES because it uses deprecated converters in Python 3.12+ that conflict with isoformat.
+            # We handle datetime conversions manually in the repository layer using `_parse_datetime` and `_format_datetime`.
+            self._conn = sqlite3.connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
 
             # Enable foreign key constraints

@@ -61,6 +61,7 @@ class Match:
     winner_id: Optional[str] = None
     status: MatchStatus = MatchStatus.PENDING
     next_match_id: Optional[uuid.UUID] = None
+    next_match_slot: Optional[int] = None
 
 @dataclass
 class MatchReport:
