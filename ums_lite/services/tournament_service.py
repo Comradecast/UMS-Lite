@@ -21,6 +21,24 @@ class TournamentService:
         self.entry_repo = EntryRepo(conn)
         self.player_repo = PlayerRepo(conn)
         self.match_repo = MatchRepo(conn)
+        from ums_lite.db.repositories import GuildConfigRepo
+        self.config_repo = GuildConfigRepo(conn)
+
+    def get_guild_config(self, guild_id: str):
+        from ums_lite.db.models import GuildConfig
+        config = self.config_repo.get(guild_id)
+        if not config:
+            config = GuildConfig(guild_id=guild_id)
+            with self.conn:
+                self.config_repo.save(config)
+        return config
+
+    def toggle_elo_policy(self, guild_id: str) -> bool:
+        with self.conn:
+            config = self.get_guild_config(guild_id)
+            config.elo_enabled = not config.elo_enabled
+            self.config_repo.save(config)
+            return config.elo_enabled
 
     def get_active_tournament(self, guild_id: str) -> Optional[Tournament]:
         return self.tournament_repo.get_active_by_guild(guild_id)
@@ -83,6 +101,25 @@ class TournamentService:
             )
             # EntryRepo.create will throw DuplicateEntityError if already joined
             self.entry_repo.create(entry)
+
+    def leave_tournament(self, tournament_id: uuid.UUID, discord_id: str) -> None:
+        with self.conn:
+            t = self.tournament_repo.get(tournament_id)
+            if not t:
+                raise EntityNotFoundError("Tournament not found")
+
+            if t.state != TournamentState.REGISTRATION_OPEN:
+                raise InvalidStateError("You can only leave during open registration.")
+
+            self.entry_repo.delete_by_tournament_and_player(tournament_id, discord_id)
+
+    def cancel_tournament(self, tournament_id: uuid.UUID) -> None:
+        with self.conn:
+            t = self.tournament_repo.get(tournament_id)
+            if not t:
+                raise EntityNotFoundError("Tournament not found")
+            tournament_domain.cancel_tournament(t)
+            self.tournament_repo.save(t)
 
     def generate_bracket(self, tournament_id: uuid.UUID) -> List[Match]:
         """Generate bracket and start tournament."""

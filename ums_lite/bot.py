@@ -25,8 +25,7 @@ class UMSLiteBot(commands.Bot):
 
         # Load Cogs
         logger.info("Loading extensions...")
-        await self.load_extension("ums_lite.cogs.admin")
-        await self.load_extension("ums_lite.cogs.player")
+        await self.load_extension("ums_lite.cogs.ums_commands")
         await self.load_extension("ums_lite.cogs.events")
 
         # Sync slash commands

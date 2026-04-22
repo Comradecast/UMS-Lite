@@ -39,18 +39,24 @@ class GuildConfigRepo(BaseRepo):
         row = self._execute("SELECT * FROM guild_configs WHERE guild_id = ?", (guild_id,)).fetchone()
         if not row:
             return None
-        return GuildConfig(**row)
+        return GuildConfig(
+            guild_id=row['guild_id'],
+            admin_role_id=row['admin_role_id'],
+            participant_role_id=row['participant_role_id'],
+            elo_enabled=bool(row['elo_enabled'])
+        )
 
     def save(self, config: GuildConfig) -> None:
         self._execute(
             """
-            INSERT INTO guild_configs (guild_id, admin_role_id, participant_role_id)
-            VALUES (?, ?, ?)
+            INSERT INTO guild_configs (guild_id, admin_role_id, participant_role_id, elo_enabled)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 admin_role_id=excluded.admin_role_id,
-                participant_role_id=excluded.participant_role_id
+                participant_role_id=excluded.participant_role_id,
+                elo_enabled=excluded.elo_enabled
             """,
-            (config.guild_id, config.admin_role_id, config.participant_role_id)
+            (config.guild_id, config.admin_role_id, config.participant_role_id, int(config.elo_enabled))
         )
 
 class PlayerRepo(BaseRepo):
@@ -165,11 +171,45 @@ class EntryRepo(BaseRepo):
     def delete(self, id: uuid.UUID) -> None:
         self._execute("DELETE FROM tournament_entries WHERE id = ?", (_format_uuid(id),))
 
+    def delete_by_tournament_and_player(self, tournament_id: uuid.UUID, player_id: str) -> None:
+        self._execute(
+            "DELETE FROM tournament_entries WHERE tournament_id = ? AND player_id = ?",
+            (_format_uuid(tournament_id), player_id)
+        )
+
 class MatchRepo(BaseRepo):
     def get(self, id: uuid.UUID) -> Optional[Match]:
         row = self._execute("SELECT * FROM matches WHERE id = ?", (_format_uuid(id),)).fetchone()
         if not row:
             return None
+        return Match(
+            id=_parse_uuid(row['id']),
+            tournament_id=_parse_uuid(row['tournament_id']),
+            round_number=row['round_number'],
+            match_number=row['match_number'],
+            player1_id=row['player1_id'],
+            player2_id=row['player2_id'],
+            winner_id=row['winner_id'],
+            status=MatchStatus(row['status']),
+            next_match_id=_parse_uuid(row['next_match_id']),
+            next_match_slot=row['next_match_slot']
+        )
+
+    def get_active_by_player(self, tournament_id: uuid.UUID, player_id: str) -> Optional[Match]:
+        row = self._execute(
+            """
+            SELECT * FROM matches
+            WHERE tournament_id = ?
+              AND status IN (?, ?)
+              AND (player1_id = ? OR player2_id = ?)
+            LIMIT 1
+            """,
+            (_format_uuid(tournament_id), MatchStatus.ACTIVE.value, MatchStatus.AWAITING_CONFIRMATION.value, player_id, player_id)
+        ).fetchone()
+
+        if not row:
+            return None
+
         return Match(
             id=_parse_uuid(row['id']),
             tournament_id=_parse_uuid(row['tournament_id']),

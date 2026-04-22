@@ -21,6 +21,9 @@ class MatchService:
         self.report_repo = ReportRepo(conn)
         self.tournament_repo = TournamentRepo(conn)
 
+    def get_active_match(self, tournament_id: uuid.UUID, player_id: str) -> Optional[Match]:
+        return self.match_repo.get_active_by_player(tournament_id, player_id)
+
     def report_match(self, match_id: uuid.UUID, reporter_id: str, claimed_winner_id: str) -> None:
         """Submit a match report and evaluate match resolution state."""
         with self.conn:

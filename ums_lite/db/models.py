@@ -28,6 +28,7 @@ class GuildConfig:
     guild_id: str
     admin_role_id: Optional[str] = None
     participant_role_id: Optional[str] = None
+    elo_enabled: bool = False
 
 @dataclass
 class PlayerProfile:

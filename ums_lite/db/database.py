@@ -11,7 +11,8 @@ class DatabaseSchema:
     CREATE TABLE IF NOT EXISTS guild_configs (
         guild_id TEXT PRIMARY KEY,
         admin_role_id TEXT,
-        participant_role_id TEXT
+        participant_role_id TEXT,
+        elo_enabled BOOLEAN DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS player_profiles (
