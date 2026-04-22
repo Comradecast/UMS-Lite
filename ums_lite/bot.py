@@ -5,6 +5,7 @@ from typing import Any
 
 from ums_lite.config import DISCORD_TOKEN, DB_PATH, SYNC_COMMANDS
 from ums_lite.db.database import db_session, init_db
+from ums_lite.ui.router import reconcile_active_messages
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +34,10 @@ class UMSLiteBot(commands.Bot):
             logger.info("Syncing slash commands...")
             await self.tree.sync()
             logger.info("Slash commands synced.")
+
+        # Reconcile persistent UI
+        logger.info("Reconciling active persistent UI messages...")
+        self.loop.create_task(reconcile_active_messages(self))
 
 def main():
     if not DISCORD_TOKEN:

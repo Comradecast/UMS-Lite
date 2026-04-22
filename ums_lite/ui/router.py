@@ -1,5 +1,6 @@
 import discord
 import logging
+import uuid
 from typing import Optional, Tuple
 
 from ums_lite.db.database import db_session
@@ -36,7 +37,8 @@ async def handle_ums_command(interaction: discord.Interaction):
         active_match = m_service.get_active_match(active_t.id, user_id)
         if active_match:
             from ums_lite.ui.match_views import MatchCard
-            embed = _build_match_card_embed(active_match)
+            reports = m_service.report_repo.get_by_match(active_match.id)
+            embed = _build_match_card_embed(active_match, reports)
             view = MatchCard(active_match.id)
 
             # We must use a single persistent message for the match so both players see state transitions.
@@ -170,7 +172,7 @@ async def _render_persistent_match_card(interaction: discord.Interaction, match,
 async def sync_public_panel(client: discord.Client, guild_id: str):
     """
     Called by Admin or System workflows to forcibly update the public panel in-place
-    without requiring a user interaction context.
+    without requiring a user interaction context. If the panel is missing, recreates it in the same channel.
     """
     conn = db_session.get_connection()
     t_service = TournamentService(conn)
@@ -187,21 +189,98 @@ async def sync_public_panel(client: discord.Client, guild_id: str):
         try:
             msg = await channel.fetch_message(int(active_t.panel_message_id))
             await msg.edit(embed=embed, view=view)
+        except discord.NotFound:
+            # Recovery: recreate the panel in the same channel
+            msg = await channel.send(embed=embed, view=view)
+            active_t.panel_message_id = str(msg.id)
+            with t_service.conn:
+                t_service.tournament_repo.save(active_t)
         except Exception as e:
             logger.error(f"Failed to sync public panel: {e}")
 
+async def reconcile_active_messages(client: discord.Client):
+    """
+    Startup helper to reconcile persisted UI references.
+    Iterates over all active tournaments to ensure public panels exist.
+    Iterates over active/disputed matches to ensure match cards exist.
+    """
+    await client.wait_until_ready()
+    conn = db_session.get_connection()
+    t_repo = TournamentService(conn).tournament_repo
+    m_repo = MatchService(conn).match_repo
+
+    active_tournaments = t_repo.get_all_active()
+    for t in active_tournaments:
+        if t.panel_channel_id and t.panel_message_id:
+            await sync_public_panel(client, t.guild_id)
+
+        active_matches = m_repo.get_all_active_by_tournament(t.id)
+        for m in active_matches:
+            if m.message_channel_id and m.message_id:
+                await sync_match_card(client, m.id)
+
+async def sync_match_card(client: discord.Client, match_id: uuid.UUID):
+    """
+    Called by System workflows to forcibly update the match card in-place.
+    If the card is missing, recreates it in the same channel.
+    """
+    conn = db_session.get_connection()
+    m_service = MatchService(conn)
+    match = m_service.match_repo.get(match_id)
+
+    if not match or not match.message_channel_id or not match.message_id:
+        return
+
+    from ums_lite.ui.match_views import MatchCard
+    reports = m_service.report_repo.get_by_match(match.id)
+    embed = _build_match_card_embed(match, reports)
+
+    view = MatchCard(match.id) if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
+
+    channel = client.get_channel(int(match.message_channel_id))
+    if channel:
+        try:
+            msg = await channel.fetch_message(int(match.message_id))
+            await msg.edit(embed=embed, view=view)
+        except discord.NotFound:
+            # Recovery: recreate the match card in the same channel
+            msg = await channel.send(embed=embed, view=view)
+            match.message_id = str(msg.id)
+            with m_service.conn:
+                m_service.match_repo.save(match)
+        except Exception as e:
+            logger.error(f"Failed to sync match card: {e}")
+
 # --- BUILDERS ---
 
-def _build_match_card_embed(match) -> discord.Embed:
+def _build_match_card_embed(match, reports: list) -> discord.Embed:
+    color = discord.Color.blue()
+    if match.status == MatchStatus.AWAITING_CONFIRMATION:
+        color = discord.Color.orange()
+    elif match.status == MatchStatus.DISPUTED:
+        color = discord.Color.red()
+    elif match.status == MatchStatus.RESOLVED:
+        color = discord.Color.green()
+
     embed = discord.Embed(
-        title="🏆 Your Active Match",
+        title="🏆 Match Card",
         description=f"Round {match.round_number} | Match {match.match_number}\n\n**Status**: {match.status.value}",
-        color=discord.Color.blue()
+        color=color
     )
     p1_display = f"<@{match.player1_id}>" if match.player1_id else "TBD / Bye"
     p2_display = f"<@{match.player2_id}>" if match.player2_id else "TBD / Bye"
     embed.add_field(name="Player 1", value=p1_display, inline=True)
     embed.add_field(name="Player 2", value=p2_display, inline=True)
+
+    if reports:
+        reports_text = ""
+        for r in reports:
+            reports_text += f"• <@{r.reporter_id}> claimed <@{r.claimed_winner_id}> won.\n"
+        embed.add_field(name="Reports", value=reports_text, inline=False)
+
+    if match.status == MatchStatus.RESOLVED and match.winner_id:
+        embed.add_field(name="👑 Winner", value=f"<@{match.winner_id}>", inline=False)
+
     return embed
 
 def _build_admin_panel_embed(active_t, t_service, config) -> discord.Embed:

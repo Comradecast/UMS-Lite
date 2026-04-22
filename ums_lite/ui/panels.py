@@ -93,7 +93,8 @@ class AdminControlPanel(View):
         await self._handle_callback(interaction, lambda: _get_service().toggle_elo_policy(self.guild_id))
 
     async def refresh_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: None)
+        # Refresh passes sync_public=True to explicitly act as a public panel recovery/sync tool
+        await self._handle_callback(interaction, lambda: None, sync_public=True)
 
 
 class PublicTournamentPanel(View):

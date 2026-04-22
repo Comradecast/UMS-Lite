@@ -97,6 +97,22 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id']
         )
 
+    def get_all_active(self) -> List[Tournament]:
+        rows = self._execute(
+            "SELECT * FROM tournaments WHERE state NOT IN (?, ?)",
+            (TournamentState.COMPLETED.value, TournamentState.CANCELLED.value)
+        ).fetchall()
+
+        return [Tournament(
+            id=_parse_uuid(row['id']),
+            guild_id=row['guild_id'],
+            name=row['name'],
+            state=TournamentState(row['state']),
+            created_at=_parse_datetime(row['created_at']),
+            panel_channel_id=row['panel_channel_id'],
+            panel_message_id=row['panel_message_id']
+        ) for row in rows]
+
     def get_active_by_guild(self, guild_id: str) -> Optional[Tournament]:
         # Active is anything not COMPLETED or CANCELLED
         row = self._execute(
@@ -234,6 +250,35 @@ class MatchRepo(BaseRepo):
             message_channel_id=row['message_channel_id'],
             message_id=row['message_id']
         )
+
+    def get_all_active_by_tournament(self, tournament_id: uuid.UUID) -> List[Match]:
+        rows = self._execute(
+            """
+            SELECT * FROM matches
+            WHERE tournament_id = ? AND status IN (?, ?, ?)
+            """,
+            (
+                _format_uuid(tournament_id),
+                MatchStatus.ACTIVE.value,
+                MatchStatus.AWAITING_CONFIRMATION.value,
+                MatchStatus.DISPUTED.value
+            )
+        ).fetchall()
+
+        return [Match(
+            id=_parse_uuid(row['id']),
+            tournament_id=_parse_uuid(row['tournament_id']),
+            round_number=row['round_number'],
+            match_number=row['match_number'],
+            player1_id=row['player1_id'],
+            player2_id=row['player2_id'],
+            winner_id=row['winner_id'],
+            status=MatchStatus(row['status']),
+            next_match_id=_parse_uuid(row['next_match_id']),
+            next_match_slot=row['next_match_slot'],
+            message_channel_id=row['message_channel_id'],
+            message_id=row['message_id']
+        ) for row in rows]
 
     def get_by_tournament(self, tournament_id: uuid.UUID) -> List[Match]:
         rows = self._execute(

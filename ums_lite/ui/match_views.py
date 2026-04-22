@@ -41,7 +41,8 @@ class MatchCard(View):
             return
 
         from ums_lite.ui.router import _render_persistent_match_card, _build_match_card_embed
-        embed = _build_match_card_embed(match)
+        reports = service.report_repo.get_by_match(match.id)
+        embed = _build_match_card_embed(match, reports)
 
         view = self if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
 
