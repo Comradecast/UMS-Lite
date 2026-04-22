@@ -26,7 +26,9 @@ class DatabaseSchema:
         guild_id TEXT NOT NULL,
         name TEXT NOT NULL,
         state TEXT NOT NULL,
-        created_at TIMESTAMP NOT NULL
+        created_at TIMESTAMP NOT NULL,
+        panel_channel_id TEXT,
+        panel_message_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS tournament_entries (
@@ -50,6 +52,8 @@ class DatabaseSchema:
         status TEXT NOT NULL,
         next_match_id TEXT,
         next_match_slot INTEGER,
+        message_channel_id TEXT,
+        message_id TEXT,
         FOREIGN KEY (tournament_id) REFERENCES tournaments (id),
         FOREIGN KEY (player1_id) REFERENCES player_profiles (discord_id),
         FOREIGN KEY (player2_id) REFERENCES player_profiles (discord_id),

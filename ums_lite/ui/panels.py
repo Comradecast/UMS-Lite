@@ -8,10 +8,8 @@ from ums_lite.services.tournament_service import TournamentService
 from ums_lite.db.models import Tournament, TournamentState
 from ums_lite.core.exceptions import UMSCoreException, DuplicateEntityError
 
-# Deferred import for router to prevent circular dependencies
-def _re_render(interaction):
-    from ums_lite.ui.router import render_ui
-    return render_ui(interaction)
+def _get_service():
+    return TournamentService(db_session.get_connection())
 
 class AdminControlPanel(View):
     def __init__(self, guild_id: str, active_t: Optional[Tournament]):
@@ -19,9 +17,7 @@ class AdminControlPanel(View):
         self.guild_id = guild_id
         self.active_t = active_t
 
-        # Setup buttons dynamically based on state
         if not self.active_t:
-            # We don't have modals set up, so for MVP we use a default name for create
             btn_create = Button(label="Create Tournament", style=discord.ButtonStyle.primary, custom_id="admin_create")
             btn_create.callback = self.create_callback
             self.add_item(btn_create)
@@ -55,39 +51,49 @@ class AdminControlPanel(View):
         btn_refresh.callback = self.refresh_callback
         self.add_item(btn_refresh)
 
-    def _get_service(self):
-        return TournamentService(db_session.get_connection())
-
-    async def _handle_callback(self, interaction: discord.Interaction, action):
-        await interaction.response.defer(ephemeral=True)
+    async def _handle_callback(self, interaction: discord.Interaction, action, sync_public=False):
         try:
             action()
         except UMSCoreException as e:
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
-        await _re_render(interaction)
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            return
+
+        # Re-render this specific admin panel in place
+        from ums_lite.ui.router import _build_admin_panel_embed
+        service = _get_service()
+        active_t = service.get_active_tournament(self.guild_id)
+        config = service.get_guild_config(self.guild_id)
+
+        embed = _build_admin_panel_embed(active_t, service, config)
+        view = AdminControlPanel(self.guild_id, active_t)
+
+        # We edit the message the button was on
+        await interaction.response.edit_message(embed=embed, view=view)
+
+        if sync_public:
+            from ums_lite.ui.router import sync_public_panel
+            await sync_public_panel(interaction.client, self.guild_id)
 
     async def create_callback(self, interaction: discord.Interaction):
-        # Fallback default name until modals are built
-        await self._handle_callback(interaction, lambda: self._get_service().create_tournament(self.guild_id, "New Tournament"))
+        await self._handle_callback(interaction, lambda: _get_service().create_tournament(self.guild_id, "New Tournament"), sync_public=True)
 
     async def open_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: self._get_service().open_registration(self.active_t.id))
+        await self._handle_callback(interaction, lambda: _get_service().open_registration(self.active_t.id), sync_public=True)
 
     async def close_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: self._get_service().close_registration(self.active_t.id))
+        await self._handle_callback(interaction, lambda: _get_service().close_registration(self.active_t.id), sync_public=True)
 
     async def start_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: self._get_service().generate_bracket(self.active_t.id))
+        await self._handle_callback(interaction, lambda: _get_service().generate_bracket(self.active_t.id), sync_public=True)
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: self._get_service().cancel_tournament(self.active_t.id))
+        await self._handle_callback(interaction, lambda: _get_service().cancel_tournament(self.active_t.id), sync_public=True)
 
     async def toggle_elo_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: self._get_service().toggle_elo_policy(self.guild_id))
+        await self._handle_callback(interaction, lambda: _get_service().toggle_elo_policy(self.guild_id))
 
     async def refresh_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await _re_render(interaction)
+        await self._handle_callback(interaction, lambda: None)
 
 
 class PublicTournamentPanel(View):
@@ -110,27 +116,29 @@ class PublicTournamentPanel(View):
         btn_refresh.callback = self.refresh_callback
         self.add_item(btn_refresh)
 
-    def _get_service(self):
-        return TournamentService(db_session.get_connection())
-
     async def _handle_callback(self, interaction: discord.Interaction, action):
-        await interaction.response.defer(ephemeral=True)
         try:
             action()
         except DuplicateEntityError:
-            pass # Ignore silent UI double clicks
+            pass # Ignore silent double clicks
         except UMSCoreException as e:
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
-        await _re_render(interaction)
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            return
+
+        # Always re-render the public panel
+        from ums_lite.ui.router import sync_public_panel
+        # Acknowledge the interaction instantly by deferring editing,
+        # then trigger the global sync to ensure everyone sees the updated count
+        await interaction.response.defer()
+        await sync_public_panel(interaction.client, self.active_t.guild_id)
 
     async def join_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
-        await self._handle_callback(interaction, lambda: self._get_service().join_tournament(self.active_t.id, user_id))
+        await self._handle_callback(interaction, lambda: _get_service().join_tournament(self.active_t.id, user_id))
 
     async def leave_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
-        await self._handle_callback(interaction, lambda: self._get_service().leave_tournament(self.active_t.id, user_id))
+        await self._handle_callback(interaction, lambda: _get_service().leave_tournament(self.active_t.id, user_id))
 
     async def refresh_callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        await _re_render(interaction)
+        await self._handle_callback(interaction, lambda: None)

@@ -43,6 +43,8 @@ class Tournament:
     name: str
     state: TournamentState
     created_at: datetime
+    panel_channel_id: Optional[str] = None
+    panel_message_id: Optional[str] = None
 
 @dataclass
 class TournamentEntry:
@@ -63,6 +65,8 @@ class Match:
     status: MatchStatus = MatchStatus.PENDING
     next_match_id: Optional[uuid.UUID] = None
     next_match_slot: Optional[int] = None
+    message_channel_id: Optional[str] = None
+    message_id: Optional[str] = None
 
 @dataclass
 class MatchReport:

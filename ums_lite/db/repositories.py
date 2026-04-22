@@ -92,7 +92,9 @@ class TournamentRepo(BaseRepo):
             guild_id=row['guild_id'],
             name=row['name'],
             state=TournamentState(row['state']),
-            created_at=_parse_datetime(row['created_at'])
+            created_at=_parse_datetime(row['created_at']),
+            panel_channel_id=row['panel_channel_id'],
+            panel_message_id=row['panel_message_id']
         )
 
     def get_active_by_guild(self, guild_id: str) -> Optional[Tournament]:
@@ -108,24 +110,30 @@ class TournamentRepo(BaseRepo):
             guild_id=row['guild_id'],
             name=row['name'],
             state=TournamentState(row['state']),
-            created_at=_parse_datetime(row['created_at'])
+            created_at=_parse_datetime(row['created_at']),
+            panel_channel_id=row['panel_channel_id'],
+            panel_message_id=row['panel_message_id']
         )
 
     def save(self, tournament: Tournament) -> None:
         self._execute(
             """
-            INSERT INTO tournaments (id, guild_id, name, state, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tournaments (id, guild_id, name, state, created_at, panel_channel_id, panel_message_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
-                state=excluded.state
+                state=excluded.state,
+                panel_channel_id=excluded.panel_channel_id,
+                panel_message_id=excluded.panel_message_id
             """,
             (
                 _format_uuid(tournament.id),
                 tournament.guild_id,
                 tournament.name,
                 tournament.state.value,
-                _format_datetime(tournament.created_at)
+                _format_datetime(tournament.created_at),
+                tournament.panel_channel_id,
+                tournament.panel_message_id
             )
         )
 
@@ -192,7 +200,9 @@ class MatchRepo(BaseRepo):
             winner_id=row['winner_id'],
             status=MatchStatus(row['status']),
             next_match_id=_parse_uuid(row['next_match_id']),
-            next_match_slot=row['next_match_slot']
+            next_match_slot=row['next_match_slot'],
+            message_channel_id=row['message_channel_id'],
+            message_id=row['message_id']
         )
 
     def get_active_by_player(self, tournament_id: uuid.UUID, player_id: str) -> Optional[Match]:
@@ -220,7 +230,9 @@ class MatchRepo(BaseRepo):
             winner_id=row['winner_id'],
             status=MatchStatus(row['status']),
             next_match_id=_parse_uuid(row['next_match_id']),
-            next_match_slot=row['next_match_slot']
+            next_match_slot=row['next_match_slot'],
+            message_channel_id=row['message_channel_id'],
+            message_id=row['message_id']
         )
 
     def get_by_tournament(self, tournament_id: uuid.UUID) -> List[Match]:
@@ -239,21 +251,25 @@ class MatchRepo(BaseRepo):
             winner_id=row['winner_id'],
             status=MatchStatus(row['status']),
             next_match_id=_parse_uuid(row['next_match_id']),
-            next_match_slot=row['next_match_slot']
+            next_match_slot=row['next_match_slot'],
+            message_channel_id=row['message_channel_id'],
+            message_id=row['message_id']
         ) for row in rows]
 
     def save(self, match: Match) -> None:
         self._execute(
             """
-            INSERT INTO matches (id, tournament_id, round_number, match_number, player1_id, player2_id, winner_id, status, next_match_id, next_match_slot)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO matches (id, tournament_id, round_number, match_number, player1_id, player2_id, winner_id, status, next_match_id, next_match_slot, message_channel_id, message_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 player1_id=excluded.player1_id,
                 player2_id=excluded.player2_id,
                 winner_id=excluded.winner_id,
                 status=excluded.status,
                 next_match_id=excluded.next_match_id,
-                next_match_slot=excluded.next_match_slot
+                next_match_slot=excluded.next_match_slot,
+                message_channel_id=excluded.message_channel_id,
+                message_id=excluded.message_id
             """,
             (
                 _format_uuid(match.id),
@@ -265,7 +281,9 @@ class MatchRepo(BaseRepo):
                 match.winner_id,
                 match.status.value,
                 _format_uuid(match.next_match_id),
-                match.next_match_slot
+                match.next_match_slot,
+                match.message_channel_id,
+                match.message_id
             )
         )
 
