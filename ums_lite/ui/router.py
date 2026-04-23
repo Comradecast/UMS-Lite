@@ -49,9 +49,8 @@ async def handle_ums_command(interaction: discord.Interaction):
 
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-            # Trigger background sync to ensure shared match card exists
-            if hasattr(interaction.client, 'loop'):
-                interaction.client.loop.create_task(sync_match_card(interaction.client, active_match.id, str(interaction.channel.id)))
+            # Ensure shared match card exists by awaiting the sync explicitly
+            await sync_match_card(interaction.client, active_match.id, str(interaction.channel.id))
             return
 
     # Priority 2: Admin Panel
@@ -65,9 +64,8 @@ async def handle_ums_command(interaction: discord.Interaction):
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-        # Trigger background sync to ensure shared public panel exists
-        if hasattr(interaction.client, 'loop'):
-            interaction.client.loop.create_task(sync_public_panel(interaction.client, guild_id, str(interaction.channel.id)))
+        # Ensure shared public panel exists by awaiting the sync explicitly
+        await sync_public_panel(interaction.client, guild_id, str(interaction.channel.id))
         return
 
     # Priority 3: Public Tournament Panel
@@ -81,9 +79,8 @@ async def handle_ums_command(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    # Trigger background sync to ensure shared public panel exists
-    if hasattr(interaction.client, 'loop'):
-        interaction.client.loop.create_task(sync_public_panel(interaction.client, guild_id, str(interaction.channel.id)))
+    # Ensure shared public panel exists by awaiting the sync explicitly
+    await sync_public_panel(interaction.client, guild_id, str(interaction.channel.id))
 
 async def sync_public_panel(client: discord.Client, guild_id: str, fallback_channel_id: Optional[str] = None):
     """

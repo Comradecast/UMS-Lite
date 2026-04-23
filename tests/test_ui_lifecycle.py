@@ -67,16 +67,12 @@ async def test_router_ephemeral_enforcement(mock_db_session):
     # Priority 3: Fallback Public Panel
     with patch('ums_lite.services.tournament_service.TournamentService.get_active_tournament', return_value=None):
         with patch('ums_lite.services.tournament_service.TournamentService.get_player_profile', return_value=None):
-            with patch('ums_lite.ui.router.sync_public_panel') as mock_sync:
-                # Need to give the mock sync an awaitable return value if it gets awaited
-                mock_sync.return_value = None
-
-                # Mock hasattr so loop.create_task is skipped gracefully during testing
-                with patch('ums_lite.ui.router.hasattr', return_value=False):
-                    await handle_ums_command(mock_interaction)
-                    mock_response.send_message.assert_called_once()
-                    _, kwargs = mock_response.send_message.call_args
-                    assert kwargs.get('ephemeral') is True
+            with patch('ums_lite.ui.router.sync_public_panel', new_callable=AsyncMock) as mock_sync:
+                await handle_ums_command(mock_interaction)
+                mock_response.send_message.assert_called_once()
+                _, kwargs = mock_response.send_message.call_args
+                assert kwargs.get('ephemeral') is True
+                mock_sync.assert_awaited_once()
 
 def test_match_message_persistence(db_conn):
     t_repo = TournamentRepo(db_conn)
