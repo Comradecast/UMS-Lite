@@ -63,8 +63,10 @@ class AdminControlPanel(View):
         service = _get_service()
         active_t = service.get_active_tournament(self.guild_id)
         config = service.get_guild_config(self.guild_id)
+        profile = service.get_player_profile(str(interaction.user.id))
+        recent = service.get_recent_tournaments(self.guild_id)
 
-        embed = _build_admin_panel_embed(active_t, service, config)
+        embed = _build_admin_panel_embed(active_t, service, config, profile, recent)
         view = AdminControlPanel(self.guild_id, active_t)
 
         # We edit the message the button was on

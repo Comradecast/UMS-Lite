@@ -49,7 +49,10 @@ async def handle_ums_command(interaction: discord.Interaction):
     if is_admin:
         from ums_lite.ui.panels import AdminControlPanel
         config = t_service.get_guild_config(guild_id)
-        embed = _build_admin_panel_embed(active_t, t_service, config)
+        profile = t_service.get_player_profile(user_id)
+        recent = t_service.get_recent_tournaments(guild_id)
+
+        embed = _build_admin_panel_embed(active_t, t_service, config, profile, recent)
         view = AdminControlPanel(guild_id, active_t)
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -57,9 +60,24 @@ async def handle_ums_command(interaction: discord.Interaction):
 
     # Priority 3: Public Tournament Panel
     from ums_lite.ui.panels import PublicTournamentPanel
+
+    # The public panel is a shared, globally visible message.
+    # We build it WITHOUT personal stats so it doesn't leak/override to everyone.
     embed, view = _build_public_panel(active_t, t_service, user_id)
 
-    # Render persistent panel logic
+    # Personal stats are delivered ephemerally alongside the shared sync.
+    profile = t_service.get_player_profile(user_id)
+    if profile:
+        stats_msg = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)"
+    else:
+        stats_msg = "📊 **Your Stats:** 0W - 0L (0 Matches, 0 Tourneys)"
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message(stats_msg, ephemeral=True)
+    else:
+        await interaction.followup.send(stats_msg, ephemeral=True)
+
+    # Render persistent shared panel logic
     await _render_persistent_public_panel(interaction, active_t, embed, view, t_service)
 
 async def _render_persistent_public_panel(interaction: discord.Interaction, active_t, embed: discord.Embed, view: Optional[discord.ui.View], t_service: TournamentService):
@@ -283,17 +301,28 @@ def _build_match_card_embed(match, reports: list) -> discord.Embed:
 
     return embed
 
-def _build_admin_panel_embed(active_t, t_service, config) -> discord.Embed:
+def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=None) -> discord.Embed:
     embed = discord.Embed(title="⚙️ UMS Admin Control Panel", color=discord.Color.dark_grey())
+
+    if profile:
+        embed.description = f"**Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)"
+
     if active_t:
         entries = t_service.entry_repo.get_by_tournament(active_t.id)
-        embed.add_field(name="Tournament", value=active_t.name, inline=False)
+        embed.add_field(name="Active Tournament", value=active_t.name, inline=False)
         embed.add_field(name="State", value=active_t.state.value, inline=True)
         embed.add_field(name="Entrants", value=str(len(entries)), inline=True)
     else:
-        embed.description = "No active tournament."
+        embed.add_field(name="Active Tournament", value="None running.", inline=False)
 
     embed.add_field(name="Elo Policy", value="Enabled" if config.elo_enabled else "Disabled", inline=False)
+
+    if recent:
+        recent_text = ""
+        for t in recent:
+            recent_text += f"• **{t.name}** ({t.state.value})\n"
+        embed.add_field(name="Recent History", value=recent_text, inline=False)
+
     return embed
 
 def _build_public_panel(active_t, t_service, user_id: Optional[str]) -> Tuple[discord.Embed, Optional[discord.ui.View]]:
@@ -302,6 +331,7 @@ def _build_public_panel(active_t, t_service, user_id: Optional[str]) -> Tuple[di
     if not active_t:
         return discord.Embed(title="🏆 UMS Lite", description="No tournament is currently running.", color=discord.Color.light_grey()), None
 
+    embed = discord.Embed(title=f"🏆 {active_t.name}", color=discord.Color.gold())
     entries = t_service.entry_repo.get_by_tournament(active_t.id)
     is_joined = False
     if user_id:

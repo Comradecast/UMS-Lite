@@ -147,6 +147,22 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id']
         )
 
+    def get_recent_by_guild(self, guild_id: str, limit: int = 3) -> List[Tournament]:
+        rows = self._execute(
+            "SELECT * FROM tournaments WHERE guild_id = ? AND state IN (?, ?) ORDER BY created_at DESC LIMIT ?",
+            (guild_id, TournamentState.COMPLETED.value, TournamentState.CANCELLED.value, limit)
+        ).fetchall()
+
+        return [Tournament(
+            id=_parse_uuid(row['id']),
+            guild_id=row['guild_id'],
+            name=row['name'],
+            state=TournamentState(row['state']),
+            created_at=_parse_datetime(row['created_at']),
+            panel_channel_id=row['panel_channel_id'],
+            panel_message_id=row['panel_message_id']
+        ) for row in rows]
+
     def save(self, tournament: Tournament) -> None:
         self._execute(
             """

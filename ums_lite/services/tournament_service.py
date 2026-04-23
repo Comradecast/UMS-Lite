@@ -43,6 +43,13 @@ class TournamentService:
     def get_active_tournament(self, guild_id: str) -> Optional[Tournament]:
         return self.tournament_repo.get_active_by_guild(guild_id)
 
+    def get_recent_tournaments(self, guild_id: str, limit: int = 3) -> List[Tournament]:
+        return self.tournament_repo.get_recent_by_guild(guild_id, limit)
+
+    def get_player_profile(self, discord_id: str):
+        """Fetch player profile or return None if not tracked yet."""
+        return self.player_repo.get(discord_id)
+
     def create_tournament(self, guild_id: str, name: str) -> Tournament:
         """Create a new tournament."""
         existing = self.tournament_repo.get_active_by_guild(guild_id)
