@@ -99,7 +99,34 @@ class AdminControlPanel(View):
         await self._handle_callback(interaction, lambda: _get_service().generate_bracket(self.active_t.id), sync_public=True, start_bracket=True)
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: _get_service().cancel_tournament(self.active_t.id), sync_public=True)
+        # We must capture the ID before it gets cancelled so we can sync the cancelled state explicitly
+        t_id = self.active_t.id
+
+        async def wrapped_cancel():
+            # First run the normal service call
+            try:
+                _get_service().cancel_tournament(t_id)
+            except UMSCoreException as e:
+                await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+                return
+
+            # Then explicitly sync the cancelled state to the public panel
+            from ums_lite.ui.router import sync_public_panel
+            await sync_public_panel(interaction.client, self.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t_id)
+
+            # Re-render the admin panel in place
+            from ums_lite.ui.router import _build_admin_panel_embed
+            service = _get_service()
+            active_t = service.get_active_tournament(self.guild_id) # Should be None now
+            config = service.get_guild_config(self.guild_id)
+            profile = service.get_player_profile(str(interaction.user.id))
+            recent = service.get_recent_tournaments(self.guild_id)
+
+            embed = _build_admin_panel_embed(active_t, service, config, profile, recent)
+            view = AdminControlPanel(self.guild_id, active_t)
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        await wrapped_cancel()
 
     async def toggle_elo_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().toggle_elo_policy(self.guild_id))

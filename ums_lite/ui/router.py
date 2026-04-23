@@ -45,7 +45,7 @@ async def handle_ums_command(interaction: discord.Interaction):
                 desc = embed.description or ""
                 embed.description = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches)\n\n" + desc
 
-            view = MatchCard(active_match.id)
+            view = MatchCard(active_match, is_admin)
 
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
@@ -59,7 +59,11 @@ async def handle_ums_command(interaction: discord.Interaction):
         config = t_service.get_guild_config(guild_id)
         recent = t_service.get_recent_tournaments(guild_id)
 
-        embed = _build_admin_panel_embed(active_t, t_service, config, profile, recent)
+        disputed_matches = []
+        if active_t:
+            disputed_matches = m_service.match_repo.get_disputed_matches(active_t.id)
+
+        embed = _build_admin_panel_embed(active_t, t_service, config, profile, recent, disputed_matches)
         view = AdminControlPanel(guild_id, active_t)
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -82,14 +86,19 @@ async def handle_ums_command(interaction: discord.Interaction):
     # Ensure shared public panel exists by awaiting the sync explicitly
     await sync_public_panel(interaction.client, guild_id, str(interaction.channel.id))
 
-async def sync_public_panel(client: discord.Client, guild_id: str, fallback_channel_id: Optional[str] = None):
+async def sync_public_panel(client: discord.Client, guild_id: str, fallback_channel_id: Optional[str] = None, tournament_id: Optional[uuid.UUID] = None):
     """
     Called by Admin or System workflows to forcibly update the shared, persistent public panel in-place.
     If the panel is missing, recreates it in the tracked channel or the fallback channel.
+    If tournament_id is provided, it specifically syncs that tournament (useful for terminal states like COMPLETED/CANCELLED).
     """
     conn = db_session.get_connection()
     t_service = TournamentService(conn)
-    active_t = t_service.get_active_tournament(guild_id)
+
+    if tournament_id:
+        active_t = t_service.tournament_repo.get(tournament_id)
+    else:
+        active_t = t_service.get_active_tournament(guild_id)
 
     if not active_t:
         return
@@ -158,7 +167,9 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
     reports = m_service.report_repo.get_by_match(match.id)
     embed = _build_match_card_embed(match, reports)
 
-    view = MatchCard(match.id) if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
+    # The shared card will render the dispute buttons for everyone if the match is DISPUTED.
+    # The callback logic in MatchCard securely enforces admin-only usage for those buttons.
+    view = MatchCard(match, is_admin=True) if match.status in [MatchStatus.ACTIVE, MatchStatus.AWAITING_CONFIRMATION, MatchStatus.DISPUTED] else None
 
     target_channel_id = match.message_channel_id or fallback_channel_id
     if not target_channel_id:
@@ -216,7 +227,7 @@ def _build_match_card_embed(match, reports: list) -> discord.Embed:
 
     return embed
 
-def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=None) -> discord.Embed:
+def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=None, disputed_matches=None) -> discord.Embed:
     embed = discord.Embed(title="⚙️ UMS Admin Control Panel", color=discord.Color.dark_grey())
 
     if profile:
@@ -227,6 +238,13 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
         embed.add_field(name="Active Tournament", value=active_t.name, inline=False)
         embed.add_field(name="State", value=active_t.state.value, inline=True)
         embed.add_field(name="Entrants", value=str(len(entries)), inline=True)
+
+        if disputed_matches:
+            disputed_text = ""
+            for m in disputed_matches:
+                disputed_text += f"• Round {m.round_number} Match {m.match_number}: <@{m.player1_id}> vs <@{m.player2_id}>\n"
+            embed.add_field(name="⚠️ Disputed Matches (Action Required)", value=disputed_text, inline=False)
+
     else:
         embed.add_field(name="Active Tournament", value="None running.", inline=False)
 
@@ -259,6 +277,11 @@ def _build_public_panel(active_t, t_service, user_id: Optional[str]) -> Tuple[di
         embed.description = "Registration is currently open!"
     elif active_t.state == TournamentState.IN_PROGRESS:
         embed.description = "The tournament is currently underway!"
+    elif active_t.state == TournamentState.COMPLETED:
+        embed.description = "The tournament is **COMPLETE**!"
+        winner = t_service.get_tournament_winner(active_t.id)
+        if winner:
+            embed.add_field(name="🏆 Tournament Winner", value=f"<@{winner}>", inline=False)
     else:
         embed.description = "The tournament is currently closed for registration."
 

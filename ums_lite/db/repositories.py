@@ -258,11 +258,11 @@ class MatchRepo(BaseRepo):
             """
             SELECT * FROM matches
             WHERE tournament_id = ?
-              AND status IN (?, ?)
+              AND status IN (?, ?, ?)
               AND (player1_id = ? OR player2_id = ?)
             LIMIT 1
             """,
-            (_format_uuid(tournament_id), MatchStatus.ACTIVE.value, MatchStatus.AWAITING_CONFIRMATION.value, player_id, player_id)
+            (_format_uuid(tournament_id), MatchStatus.ACTIVE.value, MatchStatus.AWAITING_CONFIRMATION.value, MatchStatus.DISPUTED.value, player_id, player_id)
         ).fetchone()
 
         if not row:
@@ -295,6 +295,27 @@ class MatchRepo(BaseRepo):
                 MatchStatus.AWAITING_CONFIRMATION.value,
                 MatchStatus.DISPUTED.value
             )
+        ).fetchall()
+
+        return [Match(
+            id=_parse_uuid(row['id']),
+            tournament_id=_parse_uuid(row['tournament_id']),
+            round_number=row['round_number'],
+            match_number=row['match_number'],
+            player1_id=row['player1_id'],
+            player2_id=row['player2_id'],
+            winner_id=row['winner_id'],
+            status=MatchStatus(row['status']),
+            next_match_id=_parse_uuid(row['next_match_id']),
+            next_match_slot=row['next_match_slot'],
+            message_channel_id=row['message_channel_id'],
+            message_id=row['message_id']
+        ) for row in rows]
+
+    def get_disputed_matches(self, tournament_id: uuid.UUID) -> List[Match]:
+        rows = self._execute(
+            "SELECT * FROM matches WHERE tournament_id = ? AND status = ? ORDER BY round_number, match_number",
+            (_format_uuid(tournament_id), MatchStatus.DISPUTED.value)
         ).fetchall()
 
         return [Match(

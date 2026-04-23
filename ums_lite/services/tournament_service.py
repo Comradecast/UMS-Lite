@@ -3,7 +3,7 @@ import uuid
 import sqlite3
 from datetime import datetime, timezone
 
-from ums_lite.db.models import Tournament, TournamentEntry, TournamentState, Match
+from ums_lite.db.models import Tournament, TournamentEntry, TournamentState, Match, MatchStatus
 from ums_lite.db.repositories import TournamentRepo, EntryRepo, PlayerRepo, MatchRepo
 from ums_lite.core import tournament as tournament_domain
 from ums_lite.core import bracket as bracket_domain
@@ -45,6 +45,14 @@ class TournamentService:
 
     def get_recent_tournaments(self, guild_id: str, limit: int = 3) -> List[Tournament]:
         return self.tournament_repo.get_recent_by_guild(guild_id, limit)
+
+    def get_tournament_winner(self, tournament_id: uuid.UUID) -> Optional[str]:
+        # Final match has no next_match_id
+        matches = self.match_repo.get_by_tournament(tournament_id)
+        for m in matches:
+            if m.next_match_id is None and m.status == MatchStatus.RESOLVED:
+                return m.winner_id
+        return None
 
     def get_player_profile(self, discord_id: str):
         """Fetch player profile or return None if not tracked yet."""
