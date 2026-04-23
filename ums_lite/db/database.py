@@ -18,7 +18,11 @@ class DatabaseSchema:
     CREATE TABLE IF NOT EXISTS player_profiles (
         discord_id TEXT PRIMARY KEY,
         global_ums_id TEXT, -- UUID
-        username TEXT
+        username TEXT,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        matches_played INTEGER DEFAULT 0,
+        tournaments_played INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS tournaments (

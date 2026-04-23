@@ -35,6 +35,10 @@ class PlayerProfile:
     discord_id: str
     global_ums_id: Optional[uuid.UUID] = None
     username: Optional[str] = None
+    wins: int = 0
+    losses: int = 0
+    matches_played: int = 0
+    tournaments_played: int = 0
 
 @dataclass
 class Tournament:

@@ -67,19 +67,35 @@ class PlayerRepo(BaseRepo):
         return PlayerProfile(
             discord_id=row['discord_id'],
             global_ums_id=_parse_uuid(row['global_ums_id']),
-            username=row['username']
+            username=row['username'],
+            wins=row['wins'],
+            losses=row['losses'],
+            matches_played=row['matches_played'],
+            tournaments_played=row['tournaments_played']
         )
 
     def save(self, player: PlayerProfile) -> None:
         self._execute(
             """
-            INSERT INTO player_profiles (discord_id, global_ums_id, username)
-            VALUES (?, ?, ?)
+            INSERT INTO player_profiles (discord_id, global_ums_id, username, wins, losses, matches_played, tournaments_played)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(discord_id) DO UPDATE SET
                 global_ums_id=excluded.global_ums_id,
-                username=excluded.username
+                username=excluded.username,
+                wins=excluded.wins,
+                losses=excluded.losses,
+                matches_played=excluded.matches_played,
+                tournaments_played=excluded.tournaments_played
             """,
-            (player.discord_id, _format_uuid(player.global_ums_id), player.username)
+            (
+                player.discord_id,
+                _format_uuid(player.global_ums_id),
+                player.username,
+                player.wins,
+                player.losses,
+                player.matches_played,
+                player.tournaments_played
+            )
         )
 
 class TournamentRepo(BaseRepo):

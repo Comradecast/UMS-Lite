@@ -138,6 +138,13 @@ class TournamentService:
             entries.sort(key=lambda e: e.joined_at)
             ordered_players = [e.player_id for e in entries]
 
+            # Increment tournaments_played for all entrants
+            for player_id in ordered_players:
+                p = self.player_repo.get(player_id)
+                if p:
+                    p.tournaments_played += 1
+                    self.player_repo.save(p)
+
             # Generate bracket
             matches = bracket_domain.generate_bracket(t.id, ordered_players)
 
