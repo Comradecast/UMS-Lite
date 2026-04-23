@@ -45,6 +45,39 @@ def test_tournament_message_persistence(db_conn):
     fetched2 = t_repo.get(t_id)
     assert fetched2.panel_message_id == "m2"
 
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from ums_lite.ui.router import handle_ums_command
+
+@pytest.mark.asyncio
+@patch('ums_lite.ui.router.db_session')
+async def test_router_ephemeral_enforcement(mock_db_session):
+    # Mocking interaction and db dependencies
+    mock_conn = MagicMock()
+    mock_db_session.get_connection.return_value = mock_conn
+
+    mock_interaction = MagicMock()
+    mock_interaction.guild_id = "g1"
+    mock_interaction.user.id = "u1"
+    mock_interaction.user.guild_permissions.manage_guild = False
+
+    mock_response = AsyncMock()
+    mock_interaction.response = mock_response
+
+    # Priority 3: Fallback Public Panel
+    with patch('ums_lite.services.tournament_service.TournamentService.get_active_tournament', return_value=None):
+        with patch('ums_lite.services.tournament_service.TournamentService.get_player_profile', return_value=None):
+            with patch('ums_lite.ui.router.sync_public_panel') as mock_sync:
+                # Need to give the mock sync an awaitable return value if it gets awaited
+                mock_sync.return_value = None
+
+                # Mock hasattr so loop.create_task is skipped gracefully during testing
+                with patch('ums_lite.ui.router.hasattr', return_value=False):
+                    await handle_ums_command(mock_interaction)
+                    mock_response.send_message.assert_called_once()
+                    _, kwargs = mock_response.send_message.call_args
+                    assert kwargs.get('ephemeral') is True
+
 def test_match_message_persistence(db_conn):
     t_repo = TournamentRepo(db_conn)
     m_repo = MatchRepo(db_conn)

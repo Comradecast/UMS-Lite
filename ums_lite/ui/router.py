@@ -31,6 +31,7 @@ async def handle_ums_command(interaction: discord.Interaction):
 
     active_t = t_service.get_active_tournament(guild_id)
     is_admin = interaction.user.guild_permissions.manage_guild
+    profile = t_service.get_player_profile(user_id)
 
     # Priority 1: Match Card
     if active_t and active_t.state == TournamentState.IN_PROGRESS:
@@ -38,183 +39,90 @@ async def handle_ums_command(interaction: discord.Interaction):
         if active_match:
             from ums_lite.ui.match_views import MatchCard
             reports = m_service.report_repo.get_by_match(active_match.id)
+
             embed = _build_match_card_embed(active_match, reports)
+            if profile:
+                desc = embed.description or ""
+                embed.description = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches)\n\n" + desc
+
             view = MatchCard(active_match.id)
 
-            # We must use a single persistent message for the match so both players see state transitions.
-            await _render_persistent_match_card(interaction, active_match, embed, view, m_service)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+            # Trigger background sync to ensure shared match card exists
+            if hasattr(interaction.client, 'loop'):
+                interaction.client.loop.create_task(sync_match_card(interaction.client, active_match.id, str(interaction.channel.id)))
             return
 
     # Priority 2: Admin Panel
     if is_admin:
         from ums_lite.ui.panels import AdminControlPanel
         config = t_service.get_guild_config(guild_id)
-        profile = t_service.get_player_profile(user_id)
         recent = t_service.get_recent_tournaments(guild_id)
 
         embed = _build_admin_panel_embed(active_t, t_service, config, profile, recent)
         view = AdminControlPanel(guild_id, active_t)
 
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        # Trigger background sync to ensure shared public panel exists
+        if hasattr(interaction.client, 'loop'):
+            interaction.client.loop.create_task(sync_public_panel(interaction.client, guild_id, str(interaction.channel.id)))
         return
 
     # Priority 3: Public Tournament Panel
     from ums_lite.ui.panels import PublicTournamentPanel
 
-    # The public panel is a shared, globally visible message.
-    # We build it WITHOUT personal stats so it doesn't leak/override to everyone.
     embed, view = _build_public_panel(active_t, t_service, user_id)
 
-    # Personal stats are delivered ephemerally alongside the shared sync.
-    profile = t_service.get_player_profile(user_id)
     if profile:
-        stats_msg = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)"
-    else:
-        stats_msg = "📊 **Your Stats:** 0W - 0L (0 Matches, 0 Tourneys)"
+        desc = embed.description or ""
+        embed.description = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)\n\n" + desc
 
-    if not interaction.response.is_done():
-        await interaction.response.send_message(stats_msg, ephemeral=True)
-    else:
-        await interaction.followup.send(stats_msg, ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    # Render persistent shared panel logic
-    await _render_persistent_public_panel(interaction, active_t, embed, view, t_service)
+    # Trigger background sync to ensure shared public panel exists
+    if hasattr(interaction.client, 'loop'):
+        interaction.client.loop.create_task(sync_public_panel(interaction.client, guild_id, str(interaction.channel.id)))
 
-async def _render_persistent_public_panel(interaction: discord.Interaction, active_t, embed: discord.Embed, view: Optional[discord.ui.View], t_service: TournamentService):
+async def sync_public_panel(client: discord.Client, guild_id: str, fallback_channel_id: Optional[str] = None):
     """
-    Ensures the public panel is persistent.
-    If it exists, edits it. If missing/deleted, sends a new one and saves the ID.
-    If there is no active tournament, just send a basic ephemeral fallback.
-    """
-    if not active_t:
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    channel_id_str = active_t.panel_channel_id
-    msg_id_str = active_t.panel_message_id
-
-    recreate = False
-
-    # We want public panels to be visible to everyone. If a user runs `/ums`, we don't want to spam the channel with new messages.
-    # We edit the existing message if we can, then just acknowledge the interaction ephemerally.
-    if channel_id_str and msg_id_str:
-        channel = interaction.client.get_channel(int(channel_id_str))
-        if channel:
-            try:
-                msg = await channel.fetch_message(int(msg_id_str))
-                await msg.edit(embed=embed, view=view)
-
-                # Acknowledge the user interaction
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("The public tournament panel has been updated above.", ephemeral=True)
-                return
-            except discord.NotFound:
-                recreate = True
-            except discord.HTTPException as e:
-                logger.error(f"Error editing panel: {e}")
-                recreate = True
-        else:
-            recreate = True
-    else:
-        recreate = True
-
-    if recreate:
-        # Send new public message in the channel where the command was run
-        if not interaction.response.is_done():
-            # We must acknowledge the interaction. Sending a non-ephemeral response counts.
-            msg = await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
-            if not msg:
-                # If interaction response doesn't return the message object in this context (often true for send_message),
-                # we use followup or interaction.original_response()
-                msg = await interaction.original_response()
-
-            active_t.panel_channel_id = str(interaction.channel.id)
-            active_t.panel_message_id = str(msg.id)
-
-            with t_service.conn:
-                t_service.tournament_repo.save(active_t)
-        else:
-            # Interaction already done (e.g. from a background sync or button callback fallback)
-            msg = await interaction.channel.send(embed=embed, view=view)
-            active_t.panel_channel_id = str(interaction.channel.id)
-            active_t.panel_message_id = str(msg.id)
-            with t_service.conn:
-                t_service.tournament_repo.save(active_t)
-
-async def _render_persistent_match_card(interaction: discord.Interaction, match, embed: discord.Embed, view: discord.ui.View, m_service: MatchService):
-    channel_id_str = match.message_channel_id
-    msg_id_str = match.message_id
-
-    recreate = False
-
-    if channel_id_str and msg_id_str:
-        channel = interaction.client.get_channel(int(channel_id_str))
-        if channel:
-            try:
-                msg = await channel.fetch_message(int(msg_id_str))
-                await msg.edit(embed=embed, view=view)
-
-                # Acknowledge the user interaction so it doesn't hang
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("The match card has been updated above.", ephemeral=True)
-                return
-            except discord.NotFound:
-                recreate = True
-            except discord.HTTPException as e:
-                logger.error(f"Error editing match card: {e}")
-                recreate = True
-        else:
-            recreate = True
-    else:
-        recreate = True
-
-    if recreate:
-        # Send a new non-ephemeral message so both players can interact with the same exact UI component.
-        if not interaction.response.is_done():
-            msg = await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
-            if not msg:
-                msg = await interaction.original_response()
-
-            match.message_channel_id = str(interaction.channel.id)
-            match.message_id = str(msg.id)
-
-            with m_service.conn:
-                m_service.match_repo.save(match)
-        else:
-            msg = await interaction.channel.send(embed=embed, view=view)
-            match.message_channel_id = str(interaction.channel.id)
-            match.message_id = str(msg.id)
-            with m_service.conn:
-                m_service.match_repo.save(match)
-
-async def sync_public_panel(client: discord.Client, guild_id: str):
-    """
-    Called by Admin or System workflows to forcibly update the public panel in-place
-    without requiring a user interaction context. If the panel is missing, recreates it in the same channel.
+    Called by Admin or System workflows to forcibly update the shared, persistent public panel in-place.
+    If the panel is missing, recreates it in the tracked channel or the fallback channel.
     """
     conn = db_session.get_connection()
     t_service = TournamentService(conn)
     active_t = t_service.get_active_tournament(guild_id)
 
-    if not active_t or not active_t.panel_channel_id or not active_t.panel_message_id:
+    if not active_t:
         return
 
     from ums_lite.ui.panels import PublicTournamentPanel
     embed, view = _build_public_panel(active_t, t_service, None) # user_id None means default join button state for global render
 
-    channel = client.get_channel(int(active_t.panel_channel_id))
+    target_channel_id = active_t.panel_channel_id or fallback_channel_id
+    if not target_channel_id:
+        return
+
+    channel = client.get_channel(int(target_channel_id))
     if channel:
         try:
-            msg = await channel.fetch_message(int(active_t.panel_message_id))
-            await msg.edit(embed=embed, view=view)
+            if active_t.panel_message_id:
+                msg = await channel.fetch_message(int(active_t.panel_message_id))
+                await msg.edit(embed=embed, view=view)
+                return
         except discord.NotFound:
-            # Recovery: recreate the panel in the same channel
-            msg = await channel.send(embed=embed, view=view)
-            active_t.panel_message_id = str(msg.id)
-            with t_service.conn:
-                t_service.tournament_repo.save(active_t)
+            pass # We will recreate it below
         except Exception as e:
-            logger.error(f"Failed to sync public panel: {e}")
+            logger.error(f"Failed to fetch public panel: {e}")
+            return
+
+        # Recovery or Initial Creation
+        msg = await channel.send(embed=embed, view=view)
+        active_t.panel_channel_id = str(channel.id)
+        active_t.panel_message_id = str(msg.id)
+        with t_service.conn:
+            t_service.tournament_repo.save(active_t)
 
 async def reconcile_active_messages(client: discord.Client):
     """
@@ -237,16 +145,16 @@ async def reconcile_active_messages(client: discord.Client):
             if m.message_channel_id and m.message_id:
                 await sync_match_card(client, m.id)
 
-async def sync_match_card(client: discord.Client, match_id: uuid.UUID):
+async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_channel_id: Optional[str] = None):
     """
-    Called by System workflows to forcibly update the match card in-place.
-    If the card is missing, recreates it in the same channel.
+    Called by System workflows to forcibly update the shared, persistent match card in-place.
+    If the card is missing, recreates it in the tracked channel or the fallback channel.
     """
     conn = db_session.get_connection()
     m_service = MatchService(conn)
     match = m_service.match_repo.get(match_id)
 
-    if not match or not match.message_channel_id or not match.message_id:
+    if not match:
         return
 
     from ums_lite.ui.match_views import MatchCard
@@ -255,19 +163,29 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID):
 
     view = MatchCard(match.id) if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
 
-    channel = client.get_channel(int(match.message_channel_id))
+    target_channel_id = match.message_channel_id or fallback_channel_id
+    if not target_channel_id:
+        return
+
+    channel = client.get_channel(int(target_channel_id))
     if channel:
         try:
-            msg = await channel.fetch_message(int(match.message_id))
-            await msg.edit(embed=embed, view=view)
+            if match.message_id:
+                msg = await channel.fetch_message(int(match.message_id))
+                await msg.edit(embed=embed, view=view)
+                return
         except discord.NotFound:
-            # Recovery: recreate the match card in the same channel
-            msg = await channel.send(embed=embed, view=view)
-            match.message_id = str(msg.id)
-            with m_service.conn:
-                m_service.match_repo.save(match)
+            pass # We will recreate it below
         except Exception as e:
-            logger.error(f"Failed to sync match card: {e}")
+            logger.error(f"Failed to fetch match card: {e}")
+            return
+
+        # Recovery or Initial Creation
+        msg = await channel.send(embed=embed, view=view)
+        match.message_channel_id = str(channel.id)
+        match.message_id = str(msg.id)
+        with m_service.conn:
+            m_service.match_repo.save(match)
 
 # --- BUILDERS ---
 
@@ -337,7 +255,6 @@ def _build_public_panel(active_t, t_service, user_id: Optional[str]) -> Tuple[di
     if user_id:
         is_joined = any(e.player_id == user_id for e in entries)
 
-    embed = discord.Embed(title=f"🏆 {active_t.name}", color=discord.Color.gold())
     embed.add_field(name="Status", value=active_t.state.value, inline=True)
     embed.add_field(name="Entrants", value=str(len(entries)), inline=True)
 

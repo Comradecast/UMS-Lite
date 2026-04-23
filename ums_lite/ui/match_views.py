@@ -34,29 +34,43 @@ class MatchCard(View):
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
             return
 
-        # We need to re-render the shared match card, not just respond ephemerally to the click.
         match = service.match_repo.get(self.match_id)
         if not match:
             await interaction.response.send_message("❌ Match not found.", ephemeral=True)
             return
 
-        from ums_lite.ui.router import _render_persistent_match_card, _build_match_card_embed
-        reports = service.report_repo.get_by_match(match.id)
-        embed = _build_match_card_embed(match, reports)
+        from ums_lite.ui.router import sync_match_card, sync_public_panel, _build_match_card_embed
 
-        view = self if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
+        # First, if the interaction was on an ephemeral panel, edit it in place
+        if interaction.message and interaction.message.flags.ephemeral:
+            reports = service.report_repo.get_by_match(match.id)
+            embed = _build_match_card_embed(match, reports)
+            view = self if match.status not in [MatchStatus.RESOLVED, MatchStatus.DISPUTED] else None
 
-        # `_render_persistent_match_card` handles looking up the shared message and editing it.
-        # It also handles deferring/acknowledging the current interaction.
-        await _render_persistent_match_card(interaction, match, embed, view, service)
+            # Inject stats for the ephemeral view
+            profile = service.player_repo.get(user_id)
+            if profile:
+                desc = embed.description or ""
+                embed.description = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches)\n\n" + desc
 
-        # If the tournament is complete, sync public panel
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            await interaction.response.defer()
+
+        # Next, always update the persistent, shared match card for all viewers.
+        await sync_match_card(interaction.client, match.id, fallback_channel_id=str(interaction.channel_id))
+
+        # Finally, handle tournament completion or next match syncing
         if match.status == MatchStatus.RESOLVED:
-            t_service = TournamentService(service.conn)
-            t = t_service.tournament_repo.get(match.tournament_id)
-            if t and t.state == TournamentState.COMPLETED:
-                from ums_lite.ui.router import sync_public_panel
-                await sync_public_panel(interaction.client, t.guild_id)
+            if match.next_match_id:
+                # The winner advanced, we need to sync the downstream match card so it appears
+                await sync_match_card(interaction.client, match.next_match_id, fallback_channel_id=str(interaction.channel_id))
+            else:
+                # Tournament complete, sync the public panel
+                t_service = TournamentService(service.conn)
+                t = t_service.tournament_repo.get(match.tournament_id)
+                if t and t.state == TournamentState.COMPLETED:
+                    await sync_public_panel(interaction.client, t.guild_id, fallback_channel_id=str(interaction.channel_id))
 
     async def won_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)

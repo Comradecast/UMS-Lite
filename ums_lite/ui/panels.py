@@ -51,7 +51,7 @@ class AdminControlPanel(View):
         btn_refresh.callback = self.refresh_callback
         self.add_item(btn_refresh)
 
-    async def _handle_callback(self, interaction: discord.Interaction, action, sync_public=False):
+    async def _handle_callback(self, interaction: discord.Interaction, action, sync_public=False, start_bracket=False):
         try:
             action()
         except UMSCoreException as e:
@@ -69,12 +69,22 @@ class AdminControlPanel(View):
         embed = _build_admin_panel_embed(active_t, service, config, profile, recent)
         view = AdminControlPanel(self.guild_id, active_t)
 
-        # We edit the message the button was on
+        # We edit the message the button was on (ephemeral)
         await interaction.response.edit_message(embed=embed, view=view)
 
         if sync_public:
             from ums_lite.ui.router import sync_public_panel
-            await sync_public_panel(interaction.client, self.guild_id)
+            # Pass fallback channel so a newly opened panel renders where the admin clicked it
+            await sync_public_panel(interaction.client, self.guild_id, fallback_channel_id=str(interaction.channel_id))
+
+        if start_bracket and active_t:
+            from ums_lite.ui.router import sync_match_card
+            from ums_lite.services.match_service import MatchService
+            m_service = MatchService(db_session.get_connection())
+            active_matches = m_service.match_repo.get_all_active_by_tournament(active_t.id)
+            # Sync new match cards to the same channel
+            for m in active_matches:
+                await sync_match_card(interaction.client, m.id, fallback_channel_id=str(interaction.channel_id))
 
     async def create_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().create_tournament(self.guild_id, "New Tournament"), sync_public=True)
@@ -86,7 +96,7 @@ class AdminControlPanel(View):
         await self._handle_callback(interaction, lambda: _get_service().close_registration(self.active_t.id), sync_public=True)
 
     async def start_callback(self, interaction: discord.Interaction):
-        await self._handle_callback(interaction, lambda: _get_service().generate_bracket(self.active_t.id), sync_public=True)
+        await self._handle_callback(interaction, lambda: _get_service().generate_bracket(self.active_t.id), sync_public=True, start_bracket=True)
 
     async def cancel_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().cancel_tournament(self.active_t.id), sync_public=True)
@@ -128,12 +138,25 @@ class PublicTournamentPanel(View):
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
             return
 
-        # Always re-render the public panel
+        # If the user clicked the button on an ephemeral panel, re-render it for them locally
+        if interaction.message and interaction.message.flags.ephemeral:
+            from ums_lite.ui.router import _build_public_panel
+            service = _get_service()
+            embed, view = _build_public_panel(self.active_t, service, str(interaction.user.id))
+
+            # Inject stats for the ephemeral view
+            profile = service.get_player_profile(str(interaction.user.id))
+            if profile:
+                desc = embed.description or ""
+                embed.description = f"📊 **Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)\n\n" + desc
+
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            await interaction.response.defer()
+
+        # Always re-render the global public panel
         from ums_lite.ui.router import sync_public_panel
-        # Acknowledge the interaction instantly by deferring editing,
-        # then trigger the global sync to ensure everyone sees the updated count
-        await interaction.response.defer()
-        await sync_public_panel(interaction.client, self.active_t.guild_id)
+        await sync_public_panel(interaction.client, self.active_t.guild_id, fallback_channel_id=str(interaction.channel_id))
 
     async def join_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
