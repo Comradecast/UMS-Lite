@@ -31,7 +31,7 @@ def test_valid_tournament_transitions():
 def test_invalid_start_not_enough_players():
     t = Tournament(id=uuid.uuid4(), guild_id="g1", name="Test", state=TournamentState.REGISTRATION_CLOSED, created_at=datetime.now())
 
-    with pytest.raises(InvalidStateError, match="fewer than 2 entrants"):
+    with pytest.raises(InvalidStateError, match="at least 2 players have joined"):
         start_tournament(t, entrant_count=1)
 
 def test_invalid_transition_order():
@@ -171,7 +171,7 @@ def test_invalid_reporter():
     m = Match(id=uuid.uuid4(), tournament_id=uuid.uuid4(), round_number=1, match_number=1, player1_id="P1", player2_id="P2", status=MatchStatus.ACTIVE)
     r1 = MatchReport(id=uuid.uuid4(), match_id=m.id, reporter_id="P99", claimed_winner_id="P1", reported_at=datetime.now())
 
-    with pytest.raises(ValueError, match="not part of this match"):
+    with pytest.raises(InvalidStateError, match="not assigned to you"):
         submit_report(m, [], r1)
 
 def test_duplicate_reporter():

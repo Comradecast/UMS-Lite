@@ -45,18 +45,26 @@ async def test_match_card_admin_buttons():
 
 def test_admin_panel_dispute_display(db_conn):
     t_service = TournamentService(db_conn)
-    t = Tournament(id=uuid.uuid4(), guild_id="g1", name="T1", state=TournamentState.IN_PROGRESS, created_at=datetime.now())
+
+    # Needs to be saved in DB to satisfy the entrant count lookup
+    t = t_service.create_tournament("g1", "T1")
+    t.state = TournamentState.IN_PROGRESS
+    t_service.tournament_repo.save(t)
 
     m = Match(id=uuid.uuid4(), tournament_id=t.id, round_number=1, match_number=2, player1_id="P1", player2_id="P2", status=MatchStatus.DISPUTED)
 
     config = MagicMock()
     config.elo_enabled = False
+    config.registration_channel_id = "c1"
+    config.match_channel_id = "c2"
 
     embed = _build_admin_panel_embed(active_t=t, t_service=t_service, config=config, disputed_matches=[m])
 
     fields = {f.name: f.value for f in embed.fields}
-    assert "⚠️ Disputed Matches (Action Required)" in fields
-    assert "<@P1> vs <@P2>" in fields["⚠️ Disputed Matches (Action Required)"]
+    assert "⚠️ Disputed Matches" in fields
+    assert "<@P1> vs <@P2>" in fields["⚠️ Disputed Matches"]
+    assert "Diagnostics" in fields
+    assert "⚠️ Disputed matches require attention" in fields["Diagnostics"]
 
 @pytest.mark.asyncio
 async def test_public_panel_winner_display(db_conn):

@@ -44,7 +44,7 @@ class MatchCard(View):
         try:
             service.report_match(self.match_id, user_id, claimed_winner_id)
         except UMSCoreException as e:
-            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ {str(e)}", ephemeral=True)
             return
 
         match = service.match_repo.get(self.match_id)
@@ -75,6 +75,14 @@ class MatchCard(View):
 
         # Next, always update the persistent, shared match card for all viewers.
         await sync_match_card(interaction.client, match.id)
+
+        # Provide confirmation feedback immediately
+        if match.status == MatchStatus.AWAITING_CONFIRMATION:
+            await interaction.followup.send("✅ Match reported – waiting for opponent.", ephemeral=True)
+        elif match.status == MatchStatus.DISPUTED:
+            await interaction.followup.send("⚠️ Match disputed – admin review required.", ephemeral=True)
+        elif match.status == MatchStatus.RESOLVED:
+            await interaction.followup.send(f"✅ Match resolved. Winner: <@{match.winner_id}>", ephemeral=True)
 
         # Finally, handle tournament completion or next match syncing
         if match.status == MatchStatus.RESOLVED:
@@ -118,7 +126,7 @@ class MatchCard(View):
         try:
             service.admin_force_win(self.match_id, guild_id, admin_id, winner_id)
         except UMSCoreException as e:
-            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ {str(e)}", ephemeral=True)
             return
 
         # Re-fetch match after force
@@ -142,6 +150,9 @@ class MatchCard(View):
         # Always update the persistent, shared match card for all viewers.
         await sync_match_card(interaction.client, match.id)
 
+        # Provide confirmation
+        await interaction.followup.send(f"✅ Admin override applied. Winner: <@{match.winner_id}>", ephemeral=True)
+
         # Finally, handle tournament completion or next match syncing
         if match.status == MatchStatus.RESOLVED:
             if match.next_match_id:
@@ -155,6 +166,7 @@ class MatchCard(View):
                     from ums_lite.ui.router import announce_tournament_results
                     await sync_public_panel(interaction.client, t.guild_id, tournament_id=t.id)
                     await announce_tournament_results(interaction.client, t.id)
+                    await interaction.followup.send("🏆 Tournament completed – results posted in results channel.", ephemeral=True)
 
     async def force_p1_callback(self, interaction: discord.Interaction):
         if self.p1_id:

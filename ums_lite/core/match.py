@@ -10,14 +10,14 @@ def submit_report(match: Match, existing_reports: List[MatchReport], new_report:
     Updates the match entity in-place. The caller must persist the match and new_report.
     """
     if match.status not in [MatchStatus.ACTIVE, MatchStatus.AWAITING_CONFIRMATION]:
-        raise InvalidStateError(f"Cannot submit report for match in state {match.status}")
+        raise InvalidStateError(f"Cannot submit report for a match that is already {match.status}.")
 
     if new_report.reporter_id not in [match.player1_id, match.player2_id]:
-        raise ValueError(f"Player {new_report.reporter_id} is not part of this match.")
+        raise InvalidStateError("You cannot report a match that is not assigned to you.")
 
     # Check if this player already reported
     if any(r.reporter_id == new_report.reporter_id for r in existing_reports):
-        raise InvalidStateError(f"Player {new_report.reporter_id} has already reported.")
+        raise InvalidStateError("You have already reported this match.")
 
     all_reports = existing_reports + [new_report]
 
@@ -40,7 +40,7 @@ def submit_report(match: Match, existing_reports: List[MatchReport], new_report:
             match.status = MatchStatus.DISPUTED
         return
 
-    raise InvalidStateError("Match already has 2 reports. Cannot accept more.")
+    raise InvalidStateError("This match already has 2 reports. Cannot accept more.")
 
 def advance_match_winner(match: Match, next_match: Optional[Match]) -> None:
     """

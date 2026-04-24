@@ -276,6 +276,18 @@ def _build_match_card_embed(match, reports: list) -> discord.Embed:
     embed.add_field(name="Player 1", value=p1_display, inline=True)
     embed.add_field(name="Player 2", value=p2_display, inline=True)
 
+    guidance = ""
+    if match.status == MatchStatus.ACTIVE:
+        guidance = "Report your match result below."
+    elif match.status == MatchStatus.AWAITING_CONFIRMATION:
+        guidance = "Waiting for opponent to confirm the result."
+    elif match.status == MatchStatus.DISPUTED:
+        guidance = "Waiting for admin decision."
+    elif match.status == MatchStatus.RESOLVED:
+        guidance = "Match complete."
+
+    embed.add_field(name="Guidance", value=guidance, inline=False)
+
     if reports:
         reports_text = ""
         for r in reports:
@@ -293,17 +305,29 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
     if profile:
         embed.description = f"**Your Stats:** {profile.wins}W - {profile.losses}L ({profile.matches_played} Matches, {profile.tournaments_played} Tourneys)"
 
+    # --- Diagnostics ---
+    diagnostics = []
+    if not config.registration_channel_id:
+        diagnostics.append("❌ Registration channel not set")
+    if not config.match_channel_id:
+        diagnostics.append("❌ Match Card channel not set")
+
     if active_t:
         entries = t_service.entry_repo.get_by_tournament(active_t.id)
+        entrant_count = len(entries)
         embed.add_field(name="Active Tournament", value=active_t.name, inline=False)
         embed.add_field(name="State", value=active_t.state.value, inline=True)
-        embed.add_field(name="Entrants", value=str(len(entries)), inline=True)
+        embed.add_field(name="Entrants", value=str(entrant_count), inline=True)
+
+        if entrant_count == 0 and active_t.state in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+            diagnostics.append("❌ No players registered")
 
         if disputed_matches:
             disputed_text = ""
             for m in disputed_matches:
                 disputed_text += f"• Round {m.round_number} Match {m.match_number}: <@{m.player1_id}> vs <@{m.player2_id}>\n"
-            embed.add_field(name="⚠️ Disputed Matches (Action Required)", value=disputed_text, inline=False)
+            embed.add_field(name="⚠️ Disputed Matches", value=disputed_text, inline=False)
+            diagnostics.append("⚠️ Disputed matches require attention")
 
         if active_t.state in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
             meta_text = f"**Scheduled:** {active_t.scheduled_start_time or 'TBD'}\n"
@@ -316,8 +340,28 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
         channels_text += f"\n**Results:** <#{config.results_channel_id}>" if config.results_channel_id else "\n**Results:** Optional"
         embed.add_field(name="Operational Channels", value=channels_text, inline=False)
 
+        # --- Next Step Guidance ---
+        if active_t.state == TournamentState.DRAFT:
+            next_step = "→ Set Channels\n→ Edit Details\n→ Open Registration"
+        elif active_t.state == TournamentState.REGISTRATION_OPEN:
+            next_step = "→ Wait for players\n→ Close registration\n→ Start tournament"
+        elif active_t.state == TournamentState.REGISTRATION_CLOSED:
+            next_step = "→ Start tournament"
+        elif active_t.state == TournamentState.IN_PROGRESS:
+            next_step = "→ Resolve matches\n→ Monitor disputes"
+        elif active_t.state == TournamentState.COMPLETED:
+            next_step = "→ Review results"
+        else:
+            next_step = "→ Review state"
+
+        embed.add_field(name="Next Step", value=next_step, inline=False)
+
     else:
         embed.add_field(name="Active Tournament", value="None running.", inline=False)
+        diagnostics.append("ℹ️ Create a tournament to begin")
+
+    if diagnostics:
+        embed.add_field(name="Diagnostics", value="\n".join(diagnostics), inline=False)
 
     embed.add_field(name="Elo Policy", value="Enabled" if config.elo_enabled else "Disabled", inline=False)
 
