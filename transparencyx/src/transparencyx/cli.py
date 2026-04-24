@@ -4,7 +4,8 @@ import json
 from importlib.metadata import version, PackageNotFoundError
 
 from transparencyx.ranges import parse_range
-
+from transparencyx.sources.house import HouseDownloader
+from transparencyx.sources.senate import SenateDownloader
 
 def main():
     parser = argparse.ArgumentParser(
@@ -28,6 +29,19 @@ def main():
         "label",
         type=str,
         help="The range label to parse (e.g., '$1,001 - $15,000')"
+    )
+
+    # "download" command
+    download_parser = subparsers.add_parser("download", help="Simulate downloading source disclosures")
+    download_parser.add_argument(
+        "chamber",
+        choices=["house", "senate"],
+        help="The chamber to download disclosures for"
+    )
+    download_parser.add_argument(
+        "year",
+        type=int,
+        help="The disclosure year to download"
     )
 
     args = parser.parse_args()
@@ -54,6 +68,15 @@ def main():
         }
 
         print(json.dumps(output, indent=2))
+    elif args.command == "download":
+        if args.chamber == "house":
+            downloader = HouseDownloader()
+        else:
+            downloader = SenateDownloader()
+
+        paths = downloader.download(args.year)
+        for path in paths:
+            print(f"Simulated download to: {path}")
     elif args.command is None:
         parser.print_help()
 
