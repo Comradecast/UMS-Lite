@@ -1,25 +1,24 @@
 """
-Senate eFD Source Downloader.
+Senate eFD Source.
 """
 from typing import List
 from pathlib import Path
-from transparencyx.sources import SourceDownloader
+from transparencyx.sources.base import Source
 
-class SenateDownloader(SourceDownloader):
+class SenateSource(Source):
     @property
     def chamber_name(self) -> str:
         return "senate"
 
-    def download(self, year: int) -> List[Path]:
+    def fetch(self, year: int) -> List[Path]:
         """
         Simulates downloading the Senate disclosure reports for the specified year.
-        Returns the expected file path.
+        Creates a placeholder file and returns the path.
         """
         download_dir = self.get_download_path(year)
         download_dir.mkdir(parents=True, exist_ok=True)
 
-        # In the future, this will interface with the Senate public disclosure search
         expected_file = download_dir / f"senate_reports_{year}.csv"
+        expected_file.touch()
 
-        # Return what *would* have been downloaded
         return [expected_file]
