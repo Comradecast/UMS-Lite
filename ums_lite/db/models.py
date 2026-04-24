@@ -49,6 +49,12 @@ class Tournament:
     created_at: datetime
     panel_channel_id: Optional[str] = None
     panel_message_id: Optional[str] = None
+    scheduled_start_time: Optional[str] = None
+    region: Optional[str] = None
+    format: str = "1v1"
+    registration_channel_id: Optional[str] = None
+    match_channel_id: Optional[str] = None
+    results_channel_id: Optional[str] = None
 
 @dataclass
 class TournamentEntry:

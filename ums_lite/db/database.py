@@ -32,7 +32,13 @@ class DatabaseSchema:
         state TEXT NOT NULL,
         created_at TIMESTAMP NOT NULL,
         panel_channel_id TEXT,
-        panel_message_id TEXT
+        panel_message_id TEXT,
+        scheduled_start_time TEXT,
+        region TEXT,
+        format TEXT DEFAULT '1v1',
+        registration_channel_id TEXT,
+        match_channel_id TEXT,
+        results_channel_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS tournament_entries (

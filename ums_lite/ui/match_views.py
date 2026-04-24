@@ -86,7 +86,9 @@ class MatchCard(View):
                 t_service = TournamentService(service.conn)
                 t = t_service.tournament_repo.get(match.tournament_id)
                 if t and t.state == TournamentState.COMPLETED:
+                    from ums_lite.ui.router import announce_tournament_results
                     await sync_public_panel(interaction.client, t.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t.id)
+                    await announce_tournament_results(interaction.client, t.id)
 
     async def won_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
@@ -150,7 +152,9 @@ class MatchCard(View):
                 t_service = TournamentService(service.conn)
                 t = t_service.tournament_repo.get(match.tournament_id)
                 if t and t.state == TournamentState.COMPLETED:
+                    from ums_lite.ui.router import announce_tournament_results
                     await sync_public_panel(interaction.client, t.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t.id)
+                    await announce_tournament_results(interaction.client, t.id)
 
     async def force_p1_callback(self, interaction: discord.Interaction):
         if self.p1_id:

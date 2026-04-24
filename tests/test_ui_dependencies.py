@@ -34,6 +34,7 @@ def test_leave_tournament(db_conn):
     t_service = TournamentService(db_conn)
     guild_id = "g1"
     t = t_service.create_tournament(guild_id, "T1")
+    t_service.update_tournament_channels(t.id, "reg1", "match1", "")
     t_service.open_registration(t.id)
 
     t_service.join_tournament(t.id, "P1")

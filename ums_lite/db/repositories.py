@@ -110,7 +110,13 @@ class TournamentRepo(BaseRepo):
             state=TournamentState(row['state']),
             created_at=_parse_datetime(row['created_at']),
             panel_channel_id=row['panel_channel_id'],
-            panel_message_id=row['panel_message_id']
+            panel_message_id=row['panel_message_id'],
+            scheduled_start_time=row['scheduled_start_time'],
+            region=row['region'],
+            format=row['format'],
+            registration_channel_id=row['registration_channel_id'],
+            match_channel_id=row['match_channel_id'],
+            results_channel_id=row['results_channel_id']
         )
 
     def get_all_active(self) -> List[Tournament]:
@@ -126,7 +132,13 @@ class TournamentRepo(BaseRepo):
             state=TournamentState(row['state']),
             created_at=_parse_datetime(row['created_at']),
             panel_channel_id=row['panel_channel_id'],
-            panel_message_id=row['panel_message_id']
+            panel_message_id=row['panel_message_id'],
+            scheduled_start_time=row['scheduled_start_time'],
+            region=row['region'],
+            format=row['format'],
+            registration_channel_id=row['registration_channel_id'],
+            match_channel_id=row['match_channel_id'],
+            results_channel_id=row['results_channel_id']
         ) for row in rows]
 
     def get_active_by_guild(self, guild_id: str) -> Optional[Tournament]:
@@ -144,7 +156,13 @@ class TournamentRepo(BaseRepo):
             state=TournamentState(row['state']),
             created_at=_parse_datetime(row['created_at']),
             panel_channel_id=row['panel_channel_id'],
-            panel_message_id=row['panel_message_id']
+            panel_message_id=row['panel_message_id'],
+            scheduled_start_time=row['scheduled_start_time'],
+            region=row['region'],
+            format=row['format'],
+            registration_channel_id=row['registration_channel_id'],
+            match_channel_id=row['match_channel_id'],
+            results_channel_id=row['results_channel_id']
         )
 
     def get_recent_by_guild(self, guild_id: str, limit: int = 3) -> List[Tournament]:
@@ -160,19 +178,31 @@ class TournamentRepo(BaseRepo):
             state=TournamentState(row['state']),
             created_at=_parse_datetime(row['created_at']),
             panel_channel_id=row['panel_channel_id'],
-            panel_message_id=row['panel_message_id']
+            panel_message_id=row['panel_message_id'],
+            scheduled_start_time=row['scheduled_start_time'],
+            region=row['region'],
+            format=row['format'],
+            registration_channel_id=row['registration_channel_id'],
+            match_channel_id=row['match_channel_id'],
+            results_channel_id=row['results_channel_id']
         ) for row in rows]
 
     def save(self, tournament: Tournament) -> None:
         self._execute(
             """
-            INSERT INTO tournaments (id, guild_id, name, state, created_at, panel_channel_id, panel_message_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tournaments (id, guild_id, name, state, created_at, panel_channel_id, panel_message_id, scheduled_start_time, region, format, registration_channel_id, match_channel_id, results_channel_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 state=excluded.state,
                 panel_channel_id=excluded.panel_channel_id,
-                panel_message_id=excluded.panel_message_id
+                panel_message_id=excluded.panel_message_id,
+                scheduled_start_time=excluded.scheduled_start_time,
+                region=excluded.region,
+                format=excluded.format,
+                registration_channel_id=excluded.registration_channel_id,
+                match_channel_id=excluded.match_channel_id,
+                results_channel_id=excluded.results_channel_id
             """,
             (
                 _format_uuid(tournament.id),
@@ -181,7 +211,13 @@ class TournamentRepo(BaseRepo):
                 tournament.state.value,
                 _format_datetime(tournament.created_at),
                 tournament.panel_channel_id,
-                tournament.panel_message_id
+                tournament.panel_message_id,
+                tournament.scheduled_start_time,
+                tournament.region,
+                tournament.format,
+                tournament.registration_channel_id,
+                tournament.match_channel_id,
+                tournament.results_channel_id
             )
         )
 

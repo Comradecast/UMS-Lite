@@ -80,7 +80,35 @@ class TournamentService:
             t = self.tournament_repo.get(tournament_id)
             if not t:
                 raise EntityNotFoundError("Tournament not found")
+            if not t.registration_channel_id:
+                raise InvalidStateError("You must configure a Registration Channel before opening registration.")
             tournament_domain.open_registration(t)
+            self.tournament_repo.save(t)
+
+    def update_tournament_metadata(self, tournament_id: uuid.UUID, name: str, scheduled_start_time: Optional[str], region: Optional[str]) -> None:
+        with self.conn:
+            t = self.tournament_repo.get(tournament_id)
+            if not t:
+                raise EntityNotFoundError("Tournament not found")
+            if t.state not in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+                raise InvalidStateError("Cannot edit metadata once the tournament has started.")
+
+            t.name = name
+            t.scheduled_start_time = scheduled_start_time
+            t.region = region
+            self.tournament_repo.save(t)
+
+    def update_tournament_channels(self, tournament_id: uuid.UUID, registration_channel_id: str, match_channel_id: str, results_channel_id: str) -> None:
+        with self.conn:
+            t = self.tournament_repo.get(tournament_id)
+            if not t:
+                raise EntityNotFoundError("Tournament not found")
+            if t.state not in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+                raise InvalidStateError("Cannot edit routing channels once the tournament has started.")
+
+            t.registration_channel_id = registration_channel_id
+            t.match_channel_id = match_channel_id
+            t.results_channel_id = results_channel_id
             self.tournament_repo.save(t)
 
     def close_registration(self, tournament_id: uuid.UUID) -> None:
@@ -142,6 +170,8 @@ class TournamentService:
             t = self.tournament_repo.get(tournament_id)
             if not t:
                 raise EntityNotFoundError("Tournament not found")
+            if not t.match_channel_id:
+                raise InvalidStateError("You must configure a Match Channel before starting the bracket.")
 
             entries = self.entry_repo.get_by_tournament(tournament_id)
             entrant_count = len(entries)

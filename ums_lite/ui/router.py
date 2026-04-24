@@ -106,7 +106,7 @@ async def sync_public_panel(client: discord.Client, guild_id: str, fallback_chan
     from ums_lite.ui.panels import PublicTournamentPanel
     embed, view = _build_public_panel(active_t, t_service, None) # user_id None means default join button state for global render
 
-    target_channel_id = active_t.panel_channel_id or fallback_channel_id
+    target_channel_id = active_t.panel_channel_id or active_t.registration_channel_id or fallback_channel_id
     if not target_channel_id:
         return
 
@@ -163,6 +163,9 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
     if not match:
         return
 
+    t_service = TournamentService(conn)
+    t = t_service.tournament_repo.get(match.tournament_id)
+
     from ums_lite.ui.match_views import MatchCard
     reports = m_service.report_repo.get_by_match(match.id)
     embed = _build_match_card_embed(match, reports)
@@ -171,7 +174,8 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
     # The callback logic in MatchCard securely enforces admin-only usage for those buttons.
     view = MatchCard(match, is_admin=True) if match.status in [MatchStatus.ACTIVE, MatchStatus.AWAITING_CONFIRMATION, MatchStatus.DISPUTED] else None
 
-    target_channel_id = match.message_channel_id or fallback_channel_id
+    match_channel = t.match_channel_id if t else None
+    target_channel_id = match.message_channel_id or match_channel or fallback_channel_id
     if not target_channel_id:
         return
 
@@ -194,6 +198,32 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
         match.message_id = str(msg.id)
         with m_service.conn:
             m_service.match_repo.save(match)
+
+async def announce_tournament_results(client: discord.Client, tournament_id: uuid.UUID):
+    conn = db_session.get_connection()
+    t_service = TournamentService(conn)
+
+    t = t_service.tournament_repo.get(tournament_id)
+    if not t or t.state != TournamentState.COMPLETED or not t.results_channel_id:
+        return
+
+    winner = t_service.get_tournament_winner(tournament_id)
+    if not winner:
+        return
+
+    channel = client.get_channel(int(t.results_channel_id))
+    if not channel:
+        return
+
+    embed = discord.Embed(
+        title=f"🏆 {t.name} Results",
+        description=f"**Congratulations to the winner:** <@{winner}>!",
+        color=discord.Color.gold()
+    )
+    try:
+        await channel.send(embed=embed)
+    except Exception as e:
+        logger.error(f"Failed to announce tournament results: {e}")
 
 # --- BUILDERS ---
 
@@ -244,6 +274,17 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
             for m in disputed_matches:
                 disputed_text += f"• Round {m.round_number} Match {m.match_number}: <@{m.player1_id}> vs <@{m.player2_id}>\n"
             embed.add_field(name="⚠️ Disputed Matches (Action Required)", value=disputed_text, inline=False)
+
+        if active_t.state in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+            meta_text = f"**Scheduled:** {active_t.scheduled_start_time or 'TBD'}\n"
+            meta_text += f"**Region:** {active_t.region or 'TBD'}\n"
+            meta_text += f"**Format:** {active_t.format}\n"
+            embed.add_field(name="Metadata", value=meta_text, inline=False)
+
+            channels_text = f"**Registration:** <#{active_t.registration_channel_id}>" if active_t.registration_channel_id else "**Registration:** ❌ Missing"
+            channels_text += f"\n**Match Cards:** <#{active_t.match_channel_id}>" if active_t.match_channel_id else "\n**Match Cards:** ❌ Missing"
+            channels_text += f"\n**Results:** <#{active_t.results_channel_id}>" if active_t.results_channel_id else "\n**Results:** Optional"
+            embed.add_field(name="Operational Channels", value=channels_text, inline=False)
 
     else:
         embed.add_field(name="Active Tournament", value="None running.", inline=False)

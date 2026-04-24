@@ -8,6 +8,89 @@ from ums_lite.services.tournament_service import TournamentService
 from ums_lite.db.models import Tournament, TournamentState
 from ums_lite.core.exceptions import UMSCoreException, DuplicateEntityError
 
+class TournamentDetailsModal(discord.ui.Modal, title='Edit Tournament Details'):
+    t_name = discord.ui.TextInput(label='Name', max_length=100, required=True)
+    t_time = discord.ui.TextInput(label='Scheduled Time (Optional)', placeholder='e.g., Friday 8PM EST', required=False, max_length=50)
+    t_region = discord.ui.TextInput(label='Region (Optional)', placeholder='e.g., USE, USW, EU', required=False, max_length=50)
+
+    def __init__(self, active_t: Tournament, parent_view: 'AdminControlPanel'):
+        super().__init__()
+        self.active_t = active_t
+        self.parent_view = parent_view
+
+        self.t_name.default = active_t.name
+        if active_t.scheduled_start_time:
+            self.t_time.default = active_t.scheduled_start_time
+        if active_t.region:
+            self.t_region.default = active_t.region
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            _get_service().update_tournament_metadata(
+                self.active_t.id,
+                self.t_name.value,
+                self.t_time.value if self.t_time.value else None,
+                self.t_region.value if self.t_region.value else None
+            )
+        except UMSCoreException as e:
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            return
+
+        await self.parent_view._handle_callback(interaction, lambda: None)
+
+
+class ChannelSetupView(discord.ui.View):
+    def __init__(self, guild_id: str, active_t: Tournament, parent_panel: 'AdminControlPanel'):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.active_t = active_t
+        self.parent_panel = parent_panel
+
+        self.reg_select = discord.ui.ChannelSelect(channel_types=[discord.ChannelType.text], placeholder="Select Registration Channel")
+        self.reg_select.callback = self.on_select
+        self.add_item(self.reg_select)
+
+        self.match_select = discord.ui.ChannelSelect(channel_types=[discord.ChannelType.text], placeholder="Select Match Cards Channel")
+        self.match_select.callback = self.on_select
+        self.add_item(self.match_select)
+
+        self.results_select = discord.ui.ChannelSelect(channel_types=[discord.ChannelType.text], placeholder="Select Results Channel (Optional)")
+        self.results_select.callback = self.on_select
+        self.add_item(self.results_select)
+
+        btn_save = Button(label="Save Channels", style=discord.ButtonStyle.success, row=3)
+        btn_save.callback = self.save_callback
+        self.add_item(btn_save)
+
+        btn_cancel = Button(label="Cancel", style=discord.ButtonStyle.secondary, row=3)
+        btn_cancel.callback = self.cancel_callback
+        self.add_item(btn_cancel)
+
+    async def on_select(self, interaction: discord.Interaction):
+        # We just acknowledge, selection is stored in the UI component until saved
+        await interaction.response.defer()
+
+    async def save_callback(self, interaction: discord.Interaction):
+        reg_id = str(self.reg_select.values[0].id) if self.reg_select.values else self.active_t.registration_channel_id
+        match_id = str(self.match_select.values[0].id) if self.match_select.values else self.active_t.match_channel_id
+        results_id = str(self.results_select.values[0].id) if self.results_select.values else self.active_t.results_channel_id
+
+        if not reg_id or not match_id:
+            await interaction.response.send_message("❌ You must select at least Registration and Match channels.", ephemeral=True)
+            return
+
+        try:
+            _get_service().update_tournament_channels(self.active_t.id, reg_id, match_id, results_id or "")
+        except UMSCoreException as e:
+            await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
+            return
+
+        # Re-render main admin panel
+        await self.parent_panel._handle_callback(interaction, lambda: None)
+
+    async def cancel_callback(self, interaction: discord.Interaction):
+        await self.parent_panel._handle_callback(interaction, lambda: None)
+
 def _get_service():
     return TournamentService(db_session.get_connection())
 
@@ -24,30 +107,41 @@ class AdminControlPanel(View):
         else:
             state = self.active_t.state
 
+            # Setup Actions (Available before start)
+            if state in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+                btn_edit = Button(label="Edit Details", style=discord.ButtonStyle.secondary, custom_id="admin_edit", row=0)
+                btn_edit.callback = self.edit_callback
+                self.add_item(btn_edit)
+
+                btn_channels = Button(label="Set Channels", style=discord.ButtonStyle.secondary, custom_id="admin_channels", row=0)
+                btn_channels.callback = self.channels_callback
+                self.add_item(btn_channels)
+
+            # Flow Actions
             if state == TournamentState.DRAFT:
-                btn_open = Button(label="Open Registration", style=discord.ButtonStyle.success, custom_id="admin_open")
+                btn_open = Button(label="Open Registration", style=discord.ButtonStyle.success, custom_id="admin_open", row=1)
                 btn_open.callback = self.open_callback
                 self.add_item(btn_open)
 
             elif state == TournamentState.REGISTRATION_OPEN:
-                btn_close = Button(label="Close Registration", style=discord.ButtonStyle.danger, custom_id="admin_close")
+                btn_close = Button(label="Close Registration", style=discord.ButtonStyle.danger, custom_id="admin_close", row=1)
                 btn_close.callback = self.close_callback
                 self.add_item(btn_close)
 
             elif state == TournamentState.REGISTRATION_CLOSED:
-                btn_start = Button(label="Generate & Start", style=discord.ButtonStyle.primary, custom_id="admin_start")
+                btn_start = Button(label="Generate & Start", style=discord.ButtonStyle.primary, custom_id="admin_start", row=1)
                 btn_start.callback = self.start_callback
                 self.add_item(btn_start)
 
-            btn_cancel = Button(label="Cancel Tournament", style=discord.ButtonStyle.danger, custom_id="admin_cancel", row=1)
+            btn_cancel = Button(label="Cancel Tournament", style=discord.ButtonStyle.danger, custom_id="admin_cancel", row=2)
             btn_cancel.callback = self.cancel_callback
             self.add_item(btn_cancel)
 
-        btn_toggle_elo = Button(label="Toggle Elo Policy", style=discord.ButtonStyle.secondary, custom_id="admin_toggle_elo", row=1)
+        btn_toggle_elo = Button(label="Toggle Elo Policy", style=discord.ButtonStyle.secondary, custom_id="admin_toggle_elo", row=2)
         btn_toggle_elo.callback = self.toggle_elo_callback
         self.add_item(btn_toggle_elo)
 
-        btn_refresh = Button(label="Refresh", style=discord.ButtonStyle.secondary, custom_id="admin_refresh", row=1)
+        btn_refresh = Button(label="Refresh", style=discord.ButtonStyle.secondary, custom_id="admin_refresh", row=2)
         btn_refresh.callback = self.refresh_callback
         self.add_item(btn_refresh)
 
@@ -88,6 +182,20 @@ class AdminControlPanel(View):
 
     async def create_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().create_tournament(self.guild_id, "New Tournament"), sync_public=True)
+
+    async def edit_callback(self, interaction: discord.Interaction):
+        if self.active_t:
+            await interaction.response.send_modal(TournamentDetailsModal(self.active_t, self))
+
+    async def channels_callback(self, interaction: discord.Interaction):
+        if self.active_t:
+            embed = discord.Embed(title="Configure Channels", description="Select the required operational channels.")
+            embed.add_field(name="Current Registration", value=f"<#{self.active_t.registration_channel_id}>" if self.active_t.registration_channel_id else "None")
+            embed.add_field(name="Current Match", value=f"<#{self.active_t.match_channel_id}>" if self.active_t.match_channel_id else "None")
+            embed.add_field(name="Current Results", value=f"<#{self.active_t.results_channel_id}>" if self.active_t.results_channel_id else "None")
+
+            view = ChannelSetupView(self.guild_id, self.active_t, self)
+            await interaction.response.edit_message(embed=embed, view=view)
 
     async def open_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().open_registration(self.active_t.id), sync_public=True)
