@@ -70,7 +70,7 @@ async def test_sync_public_panel_recovery(mock_db_session):
                 mock_new_msg.id = 999
                 mock_channel.send.return_value = mock_new_msg
 
-                await sync_public_panel(mock_client, "g1", fallback_channel_id="999")
+                await sync_public_panel(mock_client, "g1")
 
                 # Verify that it tried to fetch the old one
                 mock_channel.fetch_message.assert_called_once_with(222)

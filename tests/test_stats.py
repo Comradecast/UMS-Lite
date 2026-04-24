@@ -25,7 +25,7 @@ def test_stats_update_on_resolution(db_conn):
 
     guild_id = "g1"
     t = t_service.create_tournament(guild_id, "Stats Tourney")
-    t_service.update_tournament_channels(t.id, "reg1", "match1", "")
+    t_service.update_guild_channels(guild_id, "reg1", "match1", "")
     t_service.open_registration(t.id)
 
     # 3 players to ensure we have a standard match and a bye
@@ -98,7 +98,7 @@ def test_admin_force_win_audit_and_stats(db_conn):
     p_repo = PlayerRepo(db_conn)
 
     t = t_service.create_tournament("g1", "Dispute Tourney")
-    t_service.update_tournament_channels(t.id, "reg1", "match1", "")
+    t_service.update_guild_channels("g1", "reg1", "match1", "")
     t_service.open_registration(t.id)
     t_service.join_tournament(t.id, "A1")
     t_service.join_tournament(t.id, "A2")

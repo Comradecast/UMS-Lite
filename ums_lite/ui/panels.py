@@ -40,11 +40,12 @@ class TournamentDetailsModal(discord.ui.Modal, title='Edit Tournament Details'):
 
 
 class ChannelSetupView(discord.ui.View):
-    def __init__(self, guild_id: str, active_t: Tournament, parent_panel: 'AdminControlPanel'):
+    def __init__(self, guild_id: str, parent_panel=None):
         super().__init__(timeout=None)
         self.guild_id = guild_id
-        self.active_t = active_t
         self.parent_panel = parent_panel
+
+        config = _get_service().get_guild_config(guild_id)
 
         self.reg_select = discord.ui.ChannelSelect(channel_types=[discord.ChannelType.text], placeholder="Select Registration Channel")
         self.reg_select.callback = self.on_select
@@ -67,29 +68,65 @@ class ChannelSetupView(discord.ui.View):
         self.add_item(btn_cancel)
 
     async def on_select(self, interaction: discord.Interaction):
-        # We just acknowledge, selection is stored in the UI component until saved
         await interaction.response.defer()
 
     async def save_callback(self, interaction: discord.Interaction):
-        reg_id = str(self.reg_select.values[0].id) if self.reg_select.values else self.active_t.registration_channel_id
-        match_id = str(self.match_select.values[0].id) if self.match_select.values else self.active_t.match_channel_id
-        results_id = str(self.results_select.values[0].id) if self.results_select.values else self.active_t.results_channel_id
+        config = _get_service().get_guild_config(self.guild_id)
+        reg_id = str(self.reg_select.values[0].id) if self.reg_select.values else config.registration_channel_id
+        match_id = str(self.match_select.values[0].id) if self.match_select.values else config.match_channel_id
+        results_id = str(self.results_select.values[0].id) if self.results_select.values else config.results_channel_id
 
         if not reg_id or not match_id:
             await interaction.response.send_message("❌ You must select at least Registration and Match channels.", ephemeral=True)
             return
 
         try:
-            _get_service().update_tournament_channels(self.active_t.id, reg_id, match_id, results_id or "")
+            _get_service().update_guild_channels(self.guild_id, reg_id, match_id, results_id or "")
         except UMSCoreException as e:
             await interaction.response.send_message(f"❌ Error: {str(e)}", ephemeral=True)
             return
 
-        # Re-render main admin panel
-        await self.parent_panel._handle_callback(interaction, lambda: None)
+        if self.parent_panel:
+            await self.parent_panel._handle_callback(interaction, lambda: None)
+        else:
+            embed = discord.Embed(
+                title="✅ Setup Complete",
+                description="The required operational channels are now configured.\n\nPlease run `/ums` again to open the Admin Control Panel.",
+                color=discord.Color.green()
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        await self.parent_panel._handle_callback(interaction, lambda: None)
+        if self.parent_panel:
+            await self.parent_panel._handle_callback(interaction, lambda: None)
+        else:
+            embed = discord.Embed(
+                title="⚠️ Setup Cancelled",
+                description="Configuration cancelled. You must configure channels to use UMS Lite.\nRun `/ums` again to restart setup.",
+                color=discord.Color.red()
+            )
+            await interaction.response.edit_message(embed=embed, view=None)
+
+
+class GuildSetupPanel(discord.ui.View):
+    """Rendered directly by the router if channels are not configured."""
+    def __init__(self, guild_id: str):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+
+        btn_channels = Button(label="Set Channels", style=discord.ButtonStyle.primary, custom_id="setup_channels")
+        btn_channels.callback = self.channels_callback
+        self.add_item(btn_channels)
+
+    async def channels_callback(self, interaction: discord.Interaction):
+        embed = discord.Embed(title="Configure Channels", description="Select the required operational channels.")
+        config = _get_service().get_guild_config(self.guild_id)
+        embed.add_field(name="Current Registration", value=f"<#{config.registration_channel_id}>" if config.registration_channel_id else "None")
+        embed.add_field(name="Current Match", value=f"<#{config.match_channel_id}>" if config.match_channel_id else "None")
+        embed.add_field(name="Current Results", value=f"<#{config.results_channel_id}>" if config.results_channel_id else "None")
+
+        view = ChannelSetupView(self.guild_id, parent_panel=None)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 def _get_service():
     return TournamentService(db_session.get_connection())
@@ -168,17 +205,15 @@ class AdminControlPanel(View):
 
         if sync_public:
             from ums_lite.ui.router import sync_public_panel
-            # Pass fallback channel so a newly opened panel renders where the admin clicked it
-            await sync_public_panel(interaction.client, self.guild_id, fallback_channel_id=str(interaction.channel_id))
+            await sync_public_panel(interaction.client, self.guild_id)
 
         if start_bracket and active_t:
             from ums_lite.ui.router import sync_match_card
             from ums_lite.services.match_service import MatchService
             m_service = MatchService(db_session.get_connection())
             active_matches = m_service.match_repo.get_all_active_by_tournament(active_t.id)
-            # Sync new match cards to the same channel
             for m in active_matches:
-                await sync_match_card(interaction.client, m.id, fallback_channel_id=str(interaction.channel_id))
+                await sync_match_card(interaction.client, m.id)
 
     async def create_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().create_tournament(self.guild_id, "New Tournament"), sync_public=True)
@@ -188,14 +223,14 @@ class AdminControlPanel(View):
             await interaction.response.send_modal(TournamentDetailsModal(self.active_t, self))
 
     async def channels_callback(self, interaction: discord.Interaction):
-        if self.active_t:
-            embed = discord.Embed(title="Configure Channels", description="Select the required operational channels.")
-            embed.add_field(name="Current Registration", value=f"<#{self.active_t.registration_channel_id}>" if self.active_t.registration_channel_id else "None")
-            embed.add_field(name="Current Match", value=f"<#{self.active_t.match_channel_id}>" if self.active_t.match_channel_id else "None")
-            embed.add_field(name="Current Results", value=f"<#{self.active_t.results_channel_id}>" if self.active_t.results_channel_id else "None")
+        embed = discord.Embed(title="Configure Channels", description="Select the required operational channels.")
+        config = _get_service().get_guild_config(self.guild_id)
+        embed.add_field(name="Current Registration", value=f"<#{config.registration_channel_id}>" if config.registration_channel_id else "None")
+        embed.add_field(name="Current Match", value=f"<#{config.match_channel_id}>" if config.match_channel_id else "None")
+        embed.add_field(name="Current Results", value=f"<#{config.results_channel_id}>" if config.results_channel_id else "None")
 
-            view = ChannelSetupView(self.guild_id, self.active_t, self)
-            await interaction.response.edit_message(embed=embed, view=view)
+        view = ChannelSetupView(self.guild_id, parent_panel=self)
+        await interaction.response.edit_message(embed=embed, view=view)
 
     async def open_callback(self, interaction: discord.Interaction):
         await self._handle_callback(interaction, lambda: _get_service().open_registration(self.active_t.id), sync_public=True)
@@ -220,7 +255,7 @@ class AdminControlPanel(View):
 
             # Then explicitly sync the cancelled state to the public panel
             from ums_lite.ui.router import sync_public_panel
-            await sync_public_panel(interaction.client, self.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t_id)
+            await sync_public_panel(interaction.client, self.guild_id, tournament_id=t_id)
 
             # Re-render the admin panel in place
             from ums_lite.ui.router import _build_admin_panel_embed
@@ -291,7 +326,7 @@ class PublicTournamentPanel(View):
 
         # Always re-render the global public panel
         from ums_lite.ui.router import sync_public_panel
-        await sync_public_panel(interaction.client, self.active_t.guild_id, fallback_channel_id=str(interaction.channel_id))
+        await sync_public_panel(interaction.client, self.active_t.guild_id)
 
     async def join_callback(self, interaction: discord.Interaction):
         user_id = str(interaction.user.id)

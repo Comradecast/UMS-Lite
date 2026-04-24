@@ -80,8 +80,11 @@ class TournamentService:
             t = self.tournament_repo.get(tournament_id)
             if not t:
                 raise EntityNotFoundError("Tournament not found")
-            if not t.registration_channel_id:
+
+            config = self.get_guild_config(t.guild_id)
+            if not config.registration_channel_id:
                 raise InvalidStateError("You must configure a Registration Channel before opening registration.")
+
             tournament_domain.open_registration(t)
             self.tournament_repo.save(t)
 
@@ -98,18 +101,17 @@ class TournamentService:
             t.region = region
             self.tournament_repo.save(t)
 
-    def update_tournament_channels(self, tournament_id: uuid.UUID, registration_channel_id: str, match_channel_id: str, results_channel_id: str) -> None:
+    def update_guild_channels(self, guild_id: str, registration_channel_id: str, match_channel_id: str, results_channel_id: str) -> None:
         with self.conn:
-            t = self.tournament_repo.get(tournament_id)
-            if not t:
-                raise EntityNotFoundError("Tournament not found")
-            if t.state not in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
-                raise InvalidStateError("Cannot edit routing channels once the tournament has started.")
+            active_t = self.tournament_repo.get_active_by_guild(guild_id)
+            if active_t and active_t.state == TournamentState.IN_PROGRESS:
+                raise InvalidStateError("Cannot edit server routing channels while a tournament is IN_PROGRESS.")
 
-            t.registration_channel_id = registration_channel_id
-            t.match_channel_id = match_channel_id
-            t.results_channel_id = results_channel_id
-            self.tournament_repo.save(t)
+            config = self.get_guild_config(guild_id)
+            config.registration_channel_id = registration_channel_id
+            config.match_channel_id = match_channel_id
+            config.results_channel_id = results_channel_id
+            self.config_repo.save(config)
 
     def close_registration(self, tournament_id: uuid.UUID) -> None:
         with self.conn:
@@ -170,7 +172,9 @@ class TournamentService:
             t = self.tournament_repo.get(tournament_id)
             if not t:
                 raise EntityNotFoundError("Tournament not found")
-            if not t.match_channel_id:
+
+            config = self.get_guild_config(t.guild_id)
+            if not config.match_channel_id:
                 raise InvalidStateError("You must configure a Match Channel before starting the bracket.")
 
             entries = self.entry_repo.get_by_tournament(tournament_id)

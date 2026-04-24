@@ -43,20 +43,34 @@ class GuildConfigRepo(BaseRepo):
             guild_id=row['guild_id'],
             admin_role_id=row['admin_role_id'],
             participant_role_id=row['participant_role_id'],
-            elo_enabled=bool(row['elo_enabled'])
+            elo_enabled=bool(row['elo_enabled']),
+            registration_channel_id=row['registration_channel_id'],
+            match_channel_id=row['match_channel_id'],
+            results_channel_id=row['results_channel_id']
         )
 
     def save(self, config: GuildConfig) -> None:
         self._execute(
             """
-            INSERT INTO guild_configs (guild_id, admin_role_id, participant_role_id, elo_enabled)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO guild_configs (guild_id, admin_role_id, participant_role_id, elo_enabled, registration_channel_id, match_channel_id, results_channel_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 admin_role_id=excluded.admin_role_id,
                 participant_role_id=excluded.participant_role_id,
-                elo_enabled=excluded.elo_enabled
+                elo_enabled=excluded.elo_enabled,
+                registration_channel_id=excluded.registration_channel_id,
+                match_channel_id=excluded.match_channel_id,
+                results_channel_id=excluded.results_channel_id
             """,
-            (config.guild_id, config.admin_role_id, config.participant_role_id, int(config.elo_enabled))
+            (
+                config.guild_id,
+                config.admin_role_id,
+                config.participant_role_id,
+                int(config.elo_enabled),
+                config.registration_channel_id,
+                config.match_channel_id,
+                config.results_channel_id
+            )
         )
 
 class PlayerRepo(BaseRepo):
@@ -113,10 +127,7 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id'],
             scheduled_start_time=row['scheduled_start_time'],
             region=row['region'],
-            format=row['format'],
-            registration_channel_id=row['registration_channel_id'],
-            match_channel_id=row['match_channel_id'],
-            results_channel_id=row['results_channel_id']
+            format=row['format']
         )
 
     def get_all_active(self) -> List[Tournament]:
@@ -135,10 +146,7 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id'],
             scheduled_start_time=row['scheduled_start_time'],
             region=row['region'],
-            format=row['format'],
-            registration_channel_id=row['registration_channel_id'],
-            match_channel_id=row['match_channel_id'],
-            results_channel_id=row['results_channel_id']
+            format=row['format']
         ) for row in rows]
 
     def get_active_by_guild(self, guild_id: str) -> Optional[Tournament]:
@@ -159,10 +167,7 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id'],
             scheduled_start_time=row['scheduled_start_time'],
             region=row['region'],
-            format=row['format'],
-            registration_channel_id=row['registration_channel_id'],
-            match_channel_id=row['match_channel_id'],
-            results_channel_id=row['results_channel_id']
+            format=row['format']
         )
 
     def get_recent_by_guild(self, guild_id: str, limit: int = 3) -> List[Tournament]:
@@ -181,17 +186,14 @@ class TournamentRepo(BaseRepo):
             panel_message_id=row['panel_message_id'],
             scheduled_start_time=row['scheduled_start_time'],
             region=row['region'],
-            format=row['format'],
-            registration_channel_id=row['registration_channel_id'],
-            match_channel_id=row['match_channel_id'],
-            results_channel_id=row['results_channel_id']
+            format=row['format']
         ) for row in rows]
 
     def save(self, tournament: Tournament) -> None:
         self._execute(
             """
-            INSERT INTO tournaments (id, guild_id, name, state, created_at, panel_channel_id, panel_message_id, scheduled_start_time, region, format, registration_channel_id, match_channel_id, results_channel_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tournaments (id, guild_id, name, state, created_at, panel_channel_id, panel_message_id, scheduled_start_time, region, format)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 state=excluded.state,
@@ -199,10 +201,7 @@ class TournamentRepo(BaseRepo):
                 panel_message_id=excluded.panel_message_id,
                 scheduled_start_time=excluded.scheduled_start_time,
                 region=excluded.region,
-                format=excluded.format,
-                registration_channel_id=excluded.registration_channel_id,
-                match_channel_id=excluded.match_channel_id,
-                results_channel_id=excluded.results_channel_id
+                format=excluded.format
             """,
             (
                 _format_uuid(tournament.id),
@@ -214,10 +213,7 @@ class TournamentRepo(BaseRepo):
                 tournament.panel_message_id,
                 tournament.scheduled_start_time,
                 tournament.region,
-                tournament.format,
-                tournament.registration_channel_id,
-                tournament.match_channel_id,
-                tournament.results_channel_id
+                tournament.format
             )
         )
 

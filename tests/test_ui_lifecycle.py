@@ -64,15 +64,19 @@ async def test_router_ephemeral_enforcement(mock_db_session):
     mock_response = AsyncMock()
     mock_interaction.response = mock_response
 
+    from ums_lite.db.models import GuildConfig
+    config = GuildConfig(guild_id="g1", registration_channel_id="c1", match_channel_id="c2")
+
     # Priority 3: Fallback Public Panel
     with patch('ums_lite.services.tournament_service.TournamentService.get_active_tournament', return_value=None):
         with patch('ums_lite.services.tournament_service.TournamentService.get_player_profile', return_value=None):
-            with patch('ums_lite.ui.router.sync_public_panel', new_callable=AsyncMock) as mock_sync:
-                await handle_ums_command(mock_interaction)
-                mock_response.send_message.assert_called_once()
-                _, kwargs = mock_response.send_message.call_args
-                assert kwargs.get('ephemeral') is True
-                mock_sync.assert_awaited_once()
+            with patch('ums_lite.services.tournament_service.TournamentService.get_guild_config', return_value=config):
+                with patch('ums_lite.ui.router.sync_public_panel', new_callable=AsyncMock) as mock_sync:
+                    await handle_ums_command(mock_interaction)
+                    mock_response.send_message.assert_called_once()
+                    _, kwargs = mock_response.send_message.call_args
+                    assert kwargs.get('ephemeral') is True
+                    mock_sync.assert_awaited_once()
 
 def test_match_message_persistence(db_conn):
     t_repo = TournamentRepo(db_conn)

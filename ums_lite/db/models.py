@@ -29,6 +29,9 @@ class GuildConfig:
     admin_role_id: Optional[str] = None
     participant_role_id: Optional[str] = None
     elo_enabled: bool = False
+    registration_channel_id: Optional[str] = None
+    match_channel_id: Optional[str] = None
+    results_channel_id: Optional[str] = None
 
 @dataclass
 class PlayerProfile:
@@ -52,9 +55,6 @@ class Tournament:
     scheduled_start_time: Optional[str] = None
     region: Optional[str] = None
     format: str = "1v1"
-    registration_channel_id: Optional[str] = None
-    match_channel_id: Optional[str] = None
-    results_channel_id: Optional[str] = None
 
 @dataclass
 class TournamentEntry:

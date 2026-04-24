@@ -74,20 +74,20 @@ class MatchCard(View):
             await interaction.response.defer()
 
         # Next, always update the persistent, shared match card for all viewers.
-        await sync_match_card(interaction.client, match.id, fallback_channel_id=str(interaction.channel_id))
+        await sync_match_card(interaction.client, match.id)
 
         # Finally, handle tournament completion or next match syncing
         if match.status == MatchStatus.RESOLVED:
             if match.next_match_id:
                 # The winner advanced, we need to sync the downstream match card so it appears
-                await sync_match_card(interaction.client, match.next_match_id, fallback_channel_id=str(interaction.channel_id))
+                await sync_match_card(interaction.client, match.next_match_id)
             else:
                 # Tournament complete, sync the public panel
                 t_service = TournamentService(service.conn)
                 t = t_service.tournament_repo.get(match.tournament_id)
                 if t and t.state == TournamentState.COMPLETED:
                     from ums_lite.ui.router import announce_tournament_results
-                    await sync_public_panel(interaction.client, t.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t.id)
+                    await sync_public_panel(interaction.client, t.guild_id, tournament_id=t.id)
                     await announce_tournament_results(interaction.client, t.id)
 
     async def won_callback(self, interaction: discord.Interaction):
@@ -140,20 +140,20 @@ class MatchCard(View):
             await interaction.response.defer()
 
         # Always update the persistent, shared match card for all viewers.
-        await sync_match_card(interaction.client, match.id, fallback_channel_id=str(interaction.channel_id))
+        await sync_match_card(interaction.client, match.id)
 
         # Finally, handle tournament completion or next match syncing
         if match.status == MatchStatus.RESOLVED:
             if match.next_match_id:
                 # The winner advanced, we need to sync the downstream match card so it appears
-                await sync_match_card(interaction.client, match.next_match_id, fallback_channel_id=str(interaction.channel_id))
+                await sync_match_card(interaction.client, match.next_match_id)
             else:
                 # Tournament complete, sync the public panel
                 t_service = TournamentService(service.conn)
                 t = t_service.tournament_repo.get(match.tournament_id)
                 if t and t.state == TournamentState.COMPLETED:
                     from ums_lite.ui.router import announce_tournament_results
-                    await sync_public_panel(interaction.client, t.guild_id, fallback_channel_id=str(interaction.channel_id), tournament_id=t.id)
+                    await sync_public_panel(interaction.client, t.guild_id, tournament_id=t.id)
                     await announce_tournament_results(interaction.client, t.id)
 
     async def force_p1_callback(self, interaction: discord.Interaction):

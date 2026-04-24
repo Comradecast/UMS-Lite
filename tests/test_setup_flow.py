@@ -27,7 +27,7 @@ def test_missing_channels_block_progression(db_conn):
         t_service.open_registration(t.id)
 
     # Configure registration channel
-    t_service.update_tournament_channels(t.id, "reg1", "", "")
+    t_service.update_guild_channels("g1", "reg1", "", "")
     t_service.open_registration(t.id) # Should succeed now
 
     t = t_service.tournament_repo.get(t.id)
@@ -57,7 +57,7 @@ def test_prevent_editing_after_start(db_conn):
     t_service = TournamentService(db_conn)
     t = t_service.create_tournament("g1", "T1")
 
-    t_service.update_tournament_channels(t.id, "reg1", "match1", "")
+    t_service.update_guild_channels("g1", "reg1", "match1", "")
     t_service.open_registration(t.id)
     t_service.join_tournament(t.id, "P1")
     t_service.join_tournament(t.id, "P2")
@@ -65,8 +65,8 @@ def test_prevent_editing_after_start(db_conn):
     t_service.generate_bracket(t.id)
 
     # Tournament is IN_PROGRESS
-    with pytest.raises(InvalidStateError, match="Cannot edit routing channels"):
-        t_service.update_tournament_channels(t.id, "reg2", "match2", "")
+    with pytest.raises(InvalidStateError, match="Cannot edit server routing channels"):
+        t_service.update_guild_channels("g1", "reg2", "match2", "")
 
     with pytest.raises(InvalidStateError, match="Cannot edit metadata"):
         t_service.update_tournament_metadata(t.id, "New Name", None, None)

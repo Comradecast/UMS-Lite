@@ -12,7 +12,10 @@ class DatabaseSchema:
         guild_id TEXT PRIMARY KEY,
         admin_role_id TEXT,
         participant_role_id TEXT,
-        elo_enabled BOOLEAN DEFAULT 0
+        elo_enabled BOOLEAN DEFAULT 0,
+        registration_channel_id TEXT,
+        match_channel_id TEXT,
+        results_channel_id TEXT
     );
 
     CREATE TABLE IF NOT EXISTS player_profiles (
@@ -35,10 +38,7 @@ class DatabaseSchema:
         panel_message_id TEXT,
         scheduled_start_time TEXT,
         region TEXT,
-        format TEXT DEFAULT '1v1',
-        registration_channel_id TEXT,
-        match_channel_id TEXT,
-        results_channel_id TEXT
+        format TEXT DEFAULT '1v1'
     );
 
     CREATE TABLE IF NOT EXISTS tournament_entries (

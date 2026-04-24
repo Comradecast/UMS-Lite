@@ -32,6 +32,26 @@ async def handle_ums_command(interaction: discord.Interaction):
     active_t = t_service.get_active_tournament(guild_id)
     is_admin = interaction.user.guild_permissions.manage_guild
     profile = t_service.get_player_profile(user_id)
+    config = t_service.get_guild_config(guild_id)
+
+    # Preflight Check: Are operational channels configured?
+    if not config.registration_channel_id or not config.match_channel_id:
+        if is_admin:
+            from ums_lite.ui.panels import GuildSetupPanel
+            embed = discord.Embed(
+                title="⚠️ Setup Required",
+                description="UMS Lite is almost ready. You must configure the operational routing channels before tournaments can be managed.",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="Registration Channel", value=f"<#{config.registration_channel_id}>" if config.registration_channel_id else "❌ Missing")
+            embed.add_field(name="Match Card Channel", value=f"<#{config.match_channel_id}>" if config.match_channel_id else "❌ Missing")
+
+            view = GuildSetupPanel(guild_id)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            return
+        else:
+            await interaction.response.send_message("❌ This server has not finished configuring UMS Lite. Please ask an administrator to run `/ums` to complete setup.", ephemeral=True)
+            return
 
     # Priority 1: Match Card
     if active_t and active_t.state == TournamentState.IN_PROGRESS:
@@ -50,7 +70,7 @@ async def handle_ums_command(interaction: discord.Interaction):
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
             # Ensure shared match card exists by awaiting the sync explicitly
-            await sync_match_card(interaction.client, active_match.id, str(interaction.channel.id))
+            await sync_match_card(interaction.client, active_match.id)
             return
 
     # Priority 2: Admin Panel
@@ -69,7 +89,7 @@ async def handle_ums_command(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
         # Ensure shared public panel exists by awaiting the sync explicitly
-        await sync_public_panel(interaction.client, guild_id, str(interaction.channel.id))
+        await sync_public_panel(interaction.client, guild_id)
         return
 
     # Priority 3: Public Tournament Panel
@@ -84,12 +104,12 @@ async def handle_ums_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # Ensure shared public panel exists by awaiting the sync explicitly
-    await sync_public_panel(interaction.client, guild_id, str(interaction.channel.id))
+    await sync_public_panel(interaction.client, guild_id)
 
-async def sync_public_panel(client: discord.Client, guild_id: str, fallback_channel_id: Optional[str] = None, tournament_id: Optional[uuid.UUID] = None):
+async def sync_public_panel(client: discord.Client, guild_id: str, tournament_id: Optional[uuid.UUID] = None):
     """
     Called by Admin or System workflows to forcibly update the shared, persistent public panel in-place.
-    If the panel is missing, recreates it in the tracked channel or the fallback channel.
+    If the panel is missing, recreates it in the strictly configured registration channel.
     If tournament_id is provided, it specifically syncs that tournament (useful for terminal states like COMPLETED/CANCELLED).
     """
     conn = db_session.get_connection()
@@ -103,10 +123,13 @@ async def sync_public_panel(client: discord.Client, guild_id: str, fallback_chan
     if not active_t:
         return
 
+    config = t_service.get_guild_config(guild_id)
+
     from ums_lite.ui.panels import PublicTournamentPanel
     embed, view = _build_public_panel(active_t, t_service, None) # user_id None means default join button state for global render
 
-    target_channel_id = active_t.panel_channel_id or active_t.registration_channel_id or fallback_channel_id
+    # We always fallback explicitly to the config's registration_channel_id
+    target_channel_id = active_t.panel_channel_id or config.registration_channel_id
     if not target_channel_id:
         return
 
@@ -151,10 +174,10 @@ async def reconcile_active_messages(client: discord.Client):
             if m.message_channel_id and m.message_id:
                 await sync_match_card(client, m.id)
 
-async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_channel_id: Optional[str] = None):
+async def sync_match_card(client: discord.Client, match_id: uuid.UUID):
     """
     Called by System workflows to forcibly update the shared, persistent match card in-place.
-    If the card is missing, recreates it in the tracked channel or the fallback channel.
+    If the card is missing, recreates it in the strictly configured match channel.
     """
     conn = db_session.get_connection()
     m_service = MatchService(conn)
@@ -165,6 +188,7 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
 
     t_service = TournamentService(conn)
     t = t_service.tournament_repo.get(match.tournament_id)
+    config = t_service.get_guild_config(t.guild_id) if t else None
 
     from ums_lite.ui.match_views import MatchCard
     reports = m_service.report_repo.get_by_match(match.id)
@@ -174,8 +198,8 @@ async def sync_match_card(client: discord.Client, match_id: uuid.UUID, fallback_
     # The callback logic in MatchCard securely enforces admin-only usage for those buttons.
     view = MatchCard(match, is_admin=True) if match.status in [MatchStatus.ACTIVE, MatchStatus.AWAITING_CONFIRMATION, MatchStatus.DISPUTED] else None
 
-    match_channel = t.match_channel_id if t else None
-    target_channel_id = match.message_channel_id or match_channel or fallback_channel_id
+    match_channel = config.match_channel_id if config else None
+    target_channel_id = match.message_channel_id or match_channel
     if not target_channel_id:
         return
 
@@ -211,7 +235,11 @@ async def announce_tournament_results(client: discord.Client, tournament_id: uui
     if not winner:
         return
 
-    channel = client.get_channel(int(t.results_channel_id))
+    config = t_service.get_guild_config(t.guild_id)
+    if not config.results_channel_id:
+        return
+
+    channel = client.get_channel(int(config.results_channel_id))
     if not channel:
         return
 
@@ -281,10 +309,10 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
             meta_text += f"**Format:** {active_t.format}\n"
             embed.add_field(name="Metadata", value=meta_text, inline=False)
 
-            channels_text = f"**Registration:** <#{active_t.registration_channel_id}>" if active_t.registration_channel_id else "**Registration:** ❌ Missing"
-            channels_text += f"\n**Match Cards:** <#{active_t.match_channel_id}>" if active_t.match_channel_id else "\n**Match Cards:** ❌ Missing"
-            channels_text += f"\n**Results:** <#{active_t.results_channel_id}>" if active_t.results_channel_id else "\n**Results:** Optional"
-            embed.add_field(name="Operational Channels", value=channels_text, inline=False)
+        channels_text = f"**Registration:** <#{config.registration_channel_id}>" if config.registration_channel_id else "**Registration:** ❌ Missing"
+        channels_text += f"\n**Match Cards:** <#{config.match_channel_id}>" if config.match_channel_id else "\n**Match Cards:** ❌ Missing"
+        channels_text += f"\n**Results:** <#{config.results_channel_id}>" if config.results_channel_id else "\n**Results:** Optional"
+        embed.add_field(name="Operational Channels", value=channels_text, inline=False)
 
     else:
         embed.add_field(name="Active Tournament", value="None running.", inline=False)

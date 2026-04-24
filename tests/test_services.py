@@ -34,7 +34,7 @@ def test_full_tournament_lifecycle(db_conn):
     assert active_t.id == t.id
 
     # 2. Open Registration
-    t_service.update_tournament_channels(t.id, "reg1", "match1", "")
+    t_service.update_guild_channels(guild_id, "reg1", "match1", "")
     t_service.open_registration(t.id)
 
     active_t = t_service.get_active_tournament(guild_id)
