@@ -18,6 +18,22 @@ class UMSLiteBot(commands.Bot):
 
         super().__init__(command_prefix="!", intents=intents)
 
+        # Attach global app_command error handler
+        self.tree.on_error = self.on_app_command_error
+
+    async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+        if isinstance(error, discord.app_commands.MissingPermissions):
+            await interaction.response.send_message("❌ You do not have the required permissions to use this command.", ephemeral=True)
+        elif isinstance(error, discord.app_commands.BotMissingPermissions):
+            missing = ", ".join(error.missing_permissions)
+            await interaction.response.send_message(f"❌ The bot is missing required permissions to function: {missing}", ephemeral=True)
+        else:
+            logger.error(f"AppCommand Error: {error}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ An unexpected error occurred.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ An unexpected error occurred.", ephemeral=True)
+
     async def setup_hook(self):
         # Initialize DB Schema and connection provider
         logger.info("Initializing Database...")
@@ -36,14 +52,18 @@ class UMSLiteBot(commands.Bot):
             logger.info("Slash commands synced.")
 
         # Reconcile persistent UI
-        logger.info("Reconciling active persistent UI messages...")
-        self.loop.create_task(reconcile_active_messages(self))
+        logger.info("Starting UI reconciliation background task...")
+        self.loop.create_task(self._run_reconciliation())
+
+    async def _run_reconciliation(self):
+        try:
+            await reconcile_active_messages(self)
+            logger.info("Startup UI reconciliation completed successfully.")
+        except Exception as e:
+            logger.error(f"Error during startup reconciliation: {e}")
 
 def main():
-    if not DISCORD_TOKEN:
-        logger.error("No DISCORD_TOKEN found in environment. Exiting.")
-        return
-
+    logger.info("Starting UMS Lite...")
     bot = UMSLiteBot()
     bot.run(DISCORD_TOKEN)
 
