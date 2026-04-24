@@ -76,7 +76,8 @@ async def test_router_ephemeral_enforcement(mock_db_session):
                     mock_response.send_message.assert_called_once()
                     _, kwargs = mock_response.send_message.call_args
                     assert kwargs.get('ephemeral') is True
-                    mock_sync.assert_awaited_once()
+                    # It shouldn't sync if there is no active tournament
+                    mock_sync.assert_not_awaited()
 
 def test_match_message_persistence(db_conn):
     t_repo = TournamentRepo(db_conn)

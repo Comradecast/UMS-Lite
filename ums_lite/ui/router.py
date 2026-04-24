@@ -89,7 +89,8 @@ async def handle_ums_command(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
         # Ensure shared public panel exists by awaiting the sync explicitly
-        await sync_public_panel(interaction.client, guild_id)
+        if active_t and active_t.state != TournamentState.DRAFT:
+            await sync_public_panel(interaction.client, guild_id)
         return
 
     # Priority 3: Public Tournament Panel
@@ -104,7 +105,8 @@ async def handle_ums_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # Ensure shared public panel exists by awaiting the sync explicitly
-    await sync_public_panel(interaction.client, guild_id)
+    if active_t and active_t.state != TournamentState.DRAFT:
+        await sync_public_panel(interaction.client, guild_id)
 
 async def sync_public_panel(client: discord.Client, guild_id: str, tournament_id: Optional[uuid.UUID] = None):
     """
@@ -120,7 +122,7 @@ async def sync_public_panel(client: discord.Client, guild_id: str, tournament_id
     else:
         active_t = t_service.get_active_tournament(guild_id)
 
-    if not active_t:
+    if not active_t or active_t.state == TournamentState.DRAFT:
         return
 
     config = t_service.get_guild_config(guild_id)
@@ -330,7 +332,7 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
 def _build_public_panel(active_t, t_service, user_id: Optional[str]) -> Tuple[discord.Embed, Optional[discord.ui.View]]:
     from ums_lite.ui.panels import PublicTournamentPanel
 
-    if not active_t:
+    if not active_t or active_t.state == TournamentState.DRAFT:
         return discord.Embed(title="🏆 UMS Lite", description="No tournament is currently running.", color=discord.Color.light_grey()), None
 
     embed = discord.Embed(title=f"🏆 {active_t.name}", color=discord.Color.gold())
