@@ -28,10 +28,12 @@ def test_parse_range_none():
     assert result.maximum == 0
     assert result.midpoint == 0
 
-    result2 = parse_range("N/A")
-    assert result2.minimum == 0
-    assert result2.maximum == 0
-    assert result2.midpoint == 0
+def test_parse_range_na():
+    result = parse_range("N/A")
+    assert result.original_label == "N/A"
+    assert result.minimum is None
+    assert result.maximum is None
+    assert result.midpoint is None
 
 def test_parse_range_garbage():
     result = parse_range("Some weird string")

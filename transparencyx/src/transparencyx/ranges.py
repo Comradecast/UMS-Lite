@@ -10,12 +10,20 @@ def parse_range(label: str) -> DisclosureRange:
 
     # Handle explicit none/N/A
     lower_label = label_clean.lower()
-    if lower_label in ("none", "n/a", ""):
+    if lower_label == "none":
         return DisclosureRange(
             original_label=label,
             minimum=0,
             maximum=0,
             midpoint=0
+        )
+
+    if lower_label in ("n/a", ""):
+        return DisclosureRange(
+            original_label=label,
+            minimum=None,
+            maximum=None,
+            midpoint=None
         )
 
     # Handle "Over X" format
