@@ -120,26 +120,31 @@ def main():
                         "file_path": str(file_path),
                         "source": chamber_name,
                         "success": False,
-                        "message": f"Unknown source directory: {chamber_name}"
+                        "error": f"Unknown source directory: {chamber_name}"
                     })
                     continue
 
                 extractor = get_extractor_for_source(source, file_ext)
                 if extractor:
                     result = extractor.extract(file_path, source)
-                    message = result.extracted_text if result.success else result.error
-                    results.append({
-                        "file_path": str(result.file_path),
-                        "source": result.source.chamber_name,
-                        "success": result.success,
-                        "message": message
-                    })
+                    if result.success:
+                        length = len(result.extracted_text) if result.extracted_text else 0
+                        results.append({
+                            "file_path": str(result.file_path),
+                            "success": True,
+                            "extracted_length": length
+                        })
+                    else:
+                        results.append({
+                            "file_path": str(result.file_path),
+                            "success": False,
+                            "error": result.error
+                        })
                 else:
                     results.append({
                         "file_path": str(file_path),
-                        "source": source.chamber_name,
                         "success": False,
-                        "message": f"No extractor found for file type: {file_ext}"
+                        "error": f"No extractor found for file type: {file_ext}"
                     })
 
         print(json.dumps(results, indent=2))
