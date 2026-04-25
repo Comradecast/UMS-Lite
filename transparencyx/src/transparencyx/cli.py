@@ -10,6 +10,7 @@ from transparencyx.sources.registry import get_registered_sources
 from transparencyx.sources.downloader import Downloader
 from transparencyx.extract.registry import get_extractor_for_source
 from transparencyx.config import RAW_DATA_DIR
+from transparencyx.parse.sections import detect_sections
 
 
 def main():
@@ -38,8 +39,6 @@ def main():
     fetch_group.add_argument("--all", action="store_true", help="Fetch from all available sources")
     fetch_group.add_argument("--chamber", choices=["house", "senate"], help="Fetch for a specific chamber")
 
-    # We add year here but make it default to previous year if not supplied for convenience,
-    # though it wasn't strictly requested, it makes the command usable.
     fetch_parser.add_argument("--year", type=int, default=datetime.datetime.now().year - 1, help="The disclosure year to fetch")
 
     # "extract" command
@@ -47,7 +46,7 @@ def main():
     extract_group = extract_parser.add_mutually_exclusive_group(required=True)
     extract_group.add_argument("--all", action="store_true", help="Extract all downloaded files")
     extract_group.add_argument("--chamber", choices=["house", "senate"], help="Extract for a specific chamber")
-
+    extract_parser.add_argument("--show-sections", action="store_true", help="Include detected text sections in output")
 
     # "parse-range" command
     parse_parser = subparsers.add_parser("parse-range", help="Parse a financial disclosure range label")
@@ -105,7 +104,6 @@ def main():
                 # Derive file type from extension without the leading dot
                 file_ext = file_path.suffix.lstrip(".")
 
-                # Derive source from path components assuming data/raw/{chamber}/...
                 chamber_name = "unknown"
                 try:
                     rel_path = file_path.relative_to(RAW_DATA_DIR)
@@ -129,20 +127,38 @@ def main():
                     result = extractor.extract(file_path, source)
                     if result.success:
                         length = len(result.extracted_text) if result.extracted_text else 0
-                        results.append({
+
+                        out = {
                             "file_path": str(result.file_path),
+                            "source": result.source.chamber_name,
                             "success": True,
                             "extracted_length": length
-                        })
+                        }
+
+                        if args.show_sections and result.extracted_text:
+                            sections = detect_sections(result.extracted_text)
+                            out["sections"] = [
+                                {
+                                    "name": sec.name,
+                                    "start_index": sec.start_index,
+                                    "end_index": sec.end_index,
+                                    "length": len(sec.raw_text)
+                                }
+                                for sec in sections
+                            ]
+
+                        results.append(out)
                     else:
                         results.append({
                             "file_path": str(result.file_path),
+                            "source": result.source.chamber_name,
                             "success": False,
                             "error": result.error
                         })
                 else:
                     results.append({
                         "file_path": str(file_path),
+                        "source": source.chamber_name,
                         "success": False,
                         "error": f"No extractor found for file type: {file_ext}"
                     })
