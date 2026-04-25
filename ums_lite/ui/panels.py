@@ -108,6 +108,72 @@ class ChannelSetupView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=None)
 
 
+class DevHealthPanel(discord.ui.View):
+    def __init__(self, guild_id: str, active_t: Optional[Tournament]):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.active_t = active_t
+
+        btn_sync_pub = Button(label="Sync Public Panel", style=discord.ButtonStyle.secondary, custom_id="dev_sync_pub", row=0)
+        btn_sync_pub.callback = self.sync_pub_callback
+        self.add_item(btn_sync_pub)
+
+        btn_sync_matches = Button(label="Sync Match Cards", style=discord.ButtonStyle.secondary, custom_id="dev_sync_matches", row=0)
+        btn_sync_matches.callback = self.sync_matches_callback
+        self.add_item(btn_sync_matches)
+
+        btn_reconcile = Button(label="Run Reconciliation", style=discord.ButtonStyle.danger, custom_id="dev_reconcile", row=1)
+        btn_reconcile.callback = self.reconcile_callback
+        self.add_item(btn_reconcile)
+
+        btn_refresh = Button(label="Refresh Panel", style=discord.ButtonStyle.primary, custom_id="dev_refresh", row=1)
+        btn_refresh.callback = self.refresh_callback
+        self.add_item(btn_refresh)
+
+        btn_snapshot = Button(label="Show Debug Snapshot", style=discord.ButtonStyle.secondary, custom_id="dev_snapshot", row=2)
+        btn_snapshot.callback = self.snapshot_callback
+        self.add_item(btn_snapshot)
+
+    async def sync_pub_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        from ums_lite.ui.router import sync_public_panel
+        await sync_public_panel(interaction.client, self.guild_id)
+        await interaction.followup.send("✅ Public panel sync triggered.", ephemeral=True)
+
+    async def sync_matches_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if self.active_t:
+            from ums_lite.ui.router import sync_match_card
+            from ums_lite.services.match_service import MatchService
+            m_service = MatchService(db_session.get_connection())
+            active_matches = m_service.match_repo.get_all_active_by_tournament(self.active_t.id)
+            for m in active_matches:
+                await sync_match_card(interaction.client, m.id)
+            await interaction.followup.send("✅ Match cards sync triggered.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ No active tournament.", ephemeral=True)
+
+    async def reconcile_callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        from ums_lite.ui.router import reconcile_active_messages
+        await reconcile_active_messages(interaction.client)
+        await interaction.followup.send("✅ Global UI reconciliation triggered.", ephemeral=True)
+
+    async def refresh_callback(self, interaction: discord.Interaction):
+        from ums_lite.ui.router import _get_dev_health_state, _build_dev_health_embed
+        state = _get_dev_health_state(self.guild_id)
+        embed = _build_dev_health_embed(state)
+        # Update self active_t reference if it changed
+        self.active_t = state['active_t']
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def snapshot_callback(self, interaction: discord.Interaction):
+        from ums_lite.ui.router import _get_dev_health_state, _build_debug_snapshot_text
+        state = _get_dev_health_state(self.guild_id)
+        text = _build_debug_snapshot_text(state)
+        await interaction.response.send_message(text, ephemeral=True)
+
+
 class GuildSetupPanel(discord.ui.View):
     """Rendered directly by the router if channels are not configured."""
     def __init__(self, guild_id: str):
@@ -189,6 +255,10 @@ class AdminControlPanel(View):
         btn_refresh = Button(label="Refresh", style=discord.ButtonStyle.secondary, custom_id="admin_refresh", row=2)
         btn_refresh.callback = self.refresh_callback
         self.add_item(btn_refresh)
+
+        btn_dev_health = Button(label="Dev / Health", style=discord.ButtonStyle.secondary, custom_id="admin_dev_health", row=3)
+        btn_dev_health.callback = self.dev_health_callback
+        self.add_item(btn_dev_health)
 
     async def _handle_callback(self, interaction: discord.Interaction, action, sync_public=False, start_bracket=False, success_msg=None):
         try:
@@ -290,6 +360,13 @@ class AdminControlPanel(View):
     async def refresh_callback(self, interaction: discord.Interaction):
         # Refresh passes sync_public=True to explicitly act as a public panel recovery/sync tool
         await self._handle_callback(interaction, lambda: None, sync_public=True)
+
+    async def dev_health_callback(self, interaction: discord.Interaction):
+        from ums_lite.ui.router import _get_dev_health_state, _build_dev_health_embed
+        state = _get_dev_health_state(self.guild_id)
+        embed = _build_dev_health_embed(state)
+        view = DevHealthPanel(self.guild_id, self.active_t)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 class PublicTournamentPanel(View):

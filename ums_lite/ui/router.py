@@ -255,6 +255,104 @@ async def announce_tournament_results(client: discord.Client, tournament_id: uui
     except Exception as e:
         logger.error(f"Failed to announce tournament results: {e}")
 
+# --- DEV / HEALTH HELPERS ---
+
+def _get_dev_health_state(guild_id: str):
+    """Gathers comprehensive, read-only system and tournament state for the Dev Panel."""
+    from ums_lite.config import DB_PATH
+    import os
+
+    conn = db_session.get_connection()
+    t_service = TournamentService(conn)
+    m_service = MatchService(conn)
+
+    state = {
+        "db_path": DB_PATH,
+        "db_reachable": conn is not None,
+        "guild_id": guild_id,
+        "config": t_service.get_guild_config(guild_id),
+        "active_t": t_service.get_active_tournament(guild_id),
+        "recent_t": t_service.get_recent_tournaments(guild_id, limit=3),
+        "entrant_count": 0,
+        "active_match_count": 0,
+        "disputed_match_count": 0
+    }
+
+    config = state["config"]
+    state["setup_complete"] = bool(config.registration_channel_id and config.match_channel_id)
+
+    active_t = state["active_t"]
+    if active_t:
+        state["entrant_count"] = len(t_service.entry_repo.get_by_tournament(active_t.id))
+        all_matches = m_service.match_repo.get_by_tournament(active_t.id)
+        state["active_match_count"] = len([m for m in all_matches if m.status in [MatchStatus.ACTIVE, MatchStatus.AWAITING_CONFIRMATION]])
+        state["disputed_match_count"] = len([m for m in all_matches if m.status == MatchStatus.DISPUTED])
+
+    return state
+
+def _build_dev_health_embed(state: dict) -> discord.Embed:
+    embed = discord.Embed(title="🛠️ UMS Lite: Dev / Health Panel", color=discord.Color.purple())
+
+    sys_health = f"**DB Path:** {state['db_path']}\n"
+    sys_health += f"**DB Reachable:** {'✅ Yes' if state['db_reachable'] else '❌ No'}\n"
+    sys_health += f"**Setup Complete:** {'✅ Yes' if state['setup_complete'] else '❌ No'}"
+    embed.add_field(name="System Health", value=sys_health, inline=False)
+
+    config = state["config"]
+    cfg_text = f"**Registration:** {config.registration_channel_id or 'None'}\n"
+    cfg_text += f"**Match Cards:** {config.match_channel_id or 'None'}\n"
+    cfg_text += f"**Results:** {config.results_channel_id or 'None'}"
+    embed.add_field(name="Guild Config", value=cfg_text, inline=False)
+
+    active_t = state["active_t"]
+    if active_t:
+        t_text = f"**Name:** {active_t.name}\n"
+        t_text += f"**State:** {active_t.state.value}\n"
+        t_text += f"**Entrants:** {state['entrant_count']}\n"
+        t_text += f"**Active Matches:** {state['active_match_count']}\n"
+        t_text += f"**Disputed Matches:** {state['disputed_match_count']}"
+        embed.add_field(name="Tournament State", value=t_text, inline=False)
+    else:
+        embed.add_field(name="Tournament State", value="None running", inline=False)
+
+    if state["recent_t"]:
+        rec_text = "\n".join([f"• {t.name} ({t.state.value})" for t in state["recent_t"]])
+        embed.add_field(name="Recent History", value=rec_text, inline=False)
+
+    return embed
+
+def _build_debug_snapshot_text(state: dict) -> str:
+    config = state["config"]
+    active_t = state["active_t"]
+
+    text = "```\n"
+    text += "--- UMS LITE DEBUG SNAPSHOT ---\n"
+    text += f"Guild ID: {state['guild_id']}\n"
+    text += f"Setup Complete: {state['setup_complete']}\n"
+    text += f"Registration CH: {config.registration_channel_id}\n"
+    text += f"Match CH: {config.match_channel_id}\n"
+    text += f"Results CH: {config.results_channel_id}\n"
+    text += "-" * 30 + "\n"
+
+    if active_t:
+        text += f"Active T: {active_t.id}\n"
+        text += f"Name: {active_t.name}\n"
+        text += f"State: {active_t.state.value}\n"
+        text += f"Entrants: {state['entrant_count']}\n"
+        text += f"Active Matches: {state['active_match_count']}\n"
+        text += f"Disputed Matches: {state['disputed_match_count']}\n"
+    else:
+        text += "Active T: None\n"
+
+    text += "-" * 30 + "\n"
+    text += "Recent T:\n"
+    for t in state["recent_t"]:
+        text += f"  {t.id} | {t.name} | {t.state.value}\n"
+
+    text += "```"
+    return text
+
+
 # --- BUILDERS ---
 
 def _build_match_card_embed(match, reports: list) -> discord.Embed:
