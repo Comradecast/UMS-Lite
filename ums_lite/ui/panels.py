@@ -227,7 +227,15 @@ class AdminControlPanel(View):
                 self.add_item(btn_open)
 
             elif state == TournamentState.REGISTRATION_OPEN:
-                btn_close = Button(label="Close Registration", style=discord.ButtonStyle.danger, custom_id="admin_close", row=1)
+                service = _get_service()
+                entries = service.entry_repo.get_by_tournament(self.active_t.id)
+                btn_close = Button(
+                    label="Close Registration",
+                    style=discord.ButtonStyle.danger,
+                    custom_id="admin_close",
+                    row=1,
+                    disabled=len(entries) < 2
+                )
                 btn_close.callback = self.close_callback
                 self.add_item(btn_close)
 

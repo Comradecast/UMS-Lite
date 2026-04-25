@@ -118,7 +118,11 @@ class TournamentService:
             t = self.tournament_repo.get(tournament_id)
             if not t:
                 raise EntityNotFoundError("Tournament not found")
-            tournament_domain.close_registration(t)
+
+            entries = self.entry_repo.get_by_tournament(tournament_id)
+            entrant_count = len(entries)
+
+            tournament_domain.close_registration(t, entrant_count)
             self.tournament_repo.save(t)
 
     def join_tournament(self, tournament_id: uuid.UUID, discord_id: str) -> None:

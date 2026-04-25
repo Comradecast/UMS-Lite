@@ -417,7 +417,7 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
         embed.add_field(name="State", value=active_t.state.value, inline=True)
         embed.add_field(name="Entrants", value=str(entrant_count), inline=True)
 
-        if entrant_count == 0 and active_t.state in [TournamentState.DRAFT, TournamentState.REGISTRATION_OPEN]:
+        if entrant_count == 0 and active_t.state == TournamentState.DRAFT:
             diagnostics.append("❌ No players registered")
 
         if disputed_matches:
@@ -442,9 +442,17 @@ def _build_admin_panel_embed(active_t, t_service, config, profile=None, recent=N
         if active_t.state == TournamentState.DRAFT:
             next_step = "→ Set Channels\n→ Edit Details\n→ Open Registration"
         elif active_t.state == TournamentState.REGISTRATION_OPEN:
-            next_step = "→ Wait for players\n→ Close registration\n→ Start tournament"
+            if entrant_count < 2:
+                diagnostics.append("❌ Need at least 2 players before closing registration.")
+                next_step = "→ Wait for more players or cancel this tournament."
+            else:
+                next_step = "→ Wait for players\n→ Close registration\n→ Start tournament"
         elif active_t.state == TournamentState.REGISTRATION_CLOSED:
-            next_step = "→ Start tournament"
+            if entrant_count < 2:
+                diagnostics.append("❌ Registration closed with too few players.")
+                next_step = "→ Cancel this tournament."
+            else:
+                next_step = "→ Start tournament"
         elif active_t.state == TournamentState.IN_PROGRESS:
             next_step = "→ Resolve matches\n→ Monitor disputes"
         elif active_t.state == TournamentState.COMPLETED:

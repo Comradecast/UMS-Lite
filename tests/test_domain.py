@@ -19,7 +19,7 @@ def test_valid_tournament_transitions():
     open_registration(t)
     assert t.state == TournamentState.REGISTRATION_OPEN
 
-    close_registration(t)
+    close_registration(t, entrant_count=2)
     assert t.state == TournamentState.REGISTRATION_CLOSED
 
     start_tournament(t, entrant_count=2)
@@ -41,7 +41,16 @@ def test_invalid_transition_order():
         start_tournament(t, entrant_count=2) # Draft -> Start is invalid
 
     with pytest.raises(InvalidStateError):
-        close_registration(t) # Draft -> Closed is invalid
+        close_registration(t, entrant_count=2) # Draft -> Closed is invalid
+
+def test_close_registration_not_enough_players():
+    t = Tournament(id=uuid.uuid4(), guild_id="g1", name="Test", state=TournamentState.REGISTRATION_OPEN, created_at=datetime.now())
+
+    with pytest.raises(InvalidStateError, match="at least 2 players"):
+        close_registration(t, entrant_count=0)
+
+    with pytest.raises(InvalidStateError, match="at least 2 players"):
+        close_registration(t, entrant_count=1)
 
 def test_cancel_tournament():
     t = Tournament(id=uuid.uuid4(), guild_id="g1", name="Test", state=TournamentState.REGISTRATION_OPEN, created_at=datetime.now())

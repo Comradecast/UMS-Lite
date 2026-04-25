@@ -6,9 +6,11 @@ def open_registration(tournament: Tournament) -> None:
         raise InvalidStateError("You can only open registration from the Draft state.")
     tournament.state = TournamentState.REGISTRATION_OPEN
 
-def close_registration(tournament: Tournament) -> None:
+def close_registration(tournament: Tournament, entrant_count: int) -> None:
     if tournament.state != TournamentState.REGISTRATION_OPEN:
         raise InvalidStateError("You can only close registration when it is currently open.")
+    if entrant_count < 2:
+        raise InvalidStateError("You need at least 2 players before closing registration.")
     tournament.state = TournamentState.REGISTRATION_CLOSED
 
 def start_tournament(tournament: Tournament, entrant_count: int) -> None:
