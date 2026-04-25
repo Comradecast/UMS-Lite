@@ -28,3 +28,8 @@ wheels/
 
 # ruff
 .ruff_cache/
+
+# data
+data/
+*.sqlite
+*.sqlite3
