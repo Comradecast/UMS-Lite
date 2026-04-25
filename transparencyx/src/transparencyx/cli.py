@@ -11,6 +11,8 @@ from transparencyx.sources.downloader import Downloader
 from transparencyx.extract.registry import get_extractor_for_source
 from transparencyx.config import RAW_DATA_DIR
 from transparencyx.parse.sections import detect_sections
+from transparencyx.db.database import initialize_database
+from transparencyx.ingest.house import HouseDisclosureRecord, insert_house_raw_disclosure
 
 
 def main():
@@ -47,6 +49,18 @@ def main():
     extract_group.add_argument("--all", action="store_true", help="Extract all downloaded files")
     extract_group.add_argument("--chamber", choices=["house", "senate"], help="Extract for a specific chamber")
     extract_parser.add_argument("--show-sections", action="store_true", help="Include detected text sections in output")
+
+    # "db" command
+    db_parser = subparsers.add_parser("db", help="Database operations")
+    db_subparsers = db_parser.add_subparsers(dest="db_command", help="DB operations")
+    db_init_parser = db_subparsers.add_parser("init", help="Initialize the SQLite database")
+    db_init_parser.add_argument("--path", type=str, required=True, help="Path to the SQLite database file")
+
+    # "ingest" command
+    ingest_parser = subparsers.add_parser("ingest", help="Ingest raw data")
+    ingest_subparsers = ingest_parser.add_subparsers(dest="ingest_command", help="Ingest operations")
+    ingest_house_parser = ingest_subparsers.add_parser("house-sample", help="Ingest a sample House disclosure")
+    ingest_house_parser.add_argument("--db", type=str, required=True, help="Path to the SQLite database file")
 
     # "parse-range" command
     parse_parser = subparsers.add_parser("parse-range", help="Parse a financial disclosure range label")
@@ -164,6 +178,30 @@ def main():
                     })
 
         print(json.dumps(results, indent=2))
+
+    elif args.command == "db":
+        if args.db_command == "init":
+            db_path = Path(args.path)
+            initialize_database(db_path)
+            print(f"Database initialized at {db_path}")
+        else:
+            db_parser.print_help()
+
+    elif args.command == "ingest":
+        if args.ingest_command == "house-sample":
+            db_path = Path(args.db)
+            record = HouseDisclosureRecord(
+                filing_year=2023,
+                document_title="Financial Disclosure Report",
+                document_url="https://disclosures-clerk.house.gov/public_disc/financial-pdfs/2023/1234567.pdf",
+                politician_name="Doe, John",
+                filing_type="Annual",
+                local_path="data/raw/house/2023/1234567.pdf"
+            )
+            record_id = insert_house_raw_disclosure(db_path, record)
+            print(json.dumps({"success": True, "record_id": record_id}, indent=2))
+        else:
+            ingest_parser.print_help()
 
     elif args.command == "parse-range":
         parsed = parse_range(args.label)
