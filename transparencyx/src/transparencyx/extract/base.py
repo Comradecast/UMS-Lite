@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from transparencyx.sources.base import DisclosureSource
 
 
 @dataclass
@@ -12,7 +13,7 @@ class ExtractionResult:
     """
     Structured result of an extraction operation.
     """
-    source: str
+    source: DisclosureSource
     file_path: Path
     success: bool
     extracted_text: Optional[str] = None
@@ -32,7 +33,7 @@ class Extractor(ABC):
         pass
 
     @abstractmethod
-    def extract(self, file_path: Path, source: str) -> ExtractionResult:
+    def extract(self, file_path: Path, source: DisclosureSource) -> ExtractionResult:
         """
         Extract text from the given file.
         """

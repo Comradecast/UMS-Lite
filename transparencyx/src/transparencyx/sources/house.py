@@ -3,9 +3,9 @@ House Clerk Financial Disclosure Source.
 """
 from typing import List
 from pathlib import Path
-from transparencyx.sources.base import Source
+from transparencyx.sources.base import DisclosureSource
 
-class HouseSource(Source):
+class HouseSource(DisclosureSource):
     @property
     def chamber_name(self) -> str:
         return "house"

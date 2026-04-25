@@ -4,16 +4,19 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 
+from transparencyx.sources.house import HouseSource
 from transparencyx.extract.registry import get_extractor_for_source
 from transparencyx.extract.pdf import PDFExtractor
 from transparencyx.cli import main
 
 def test_registry_returns_pdf_extractor():
-    extractor = get_extractor_for_source("pdf")
+    source = HouseSource()
+    extractor = get_extractor_for_source(source, "pdf")
     assert isinstance(extractor, PDFExtractor)
 
 def test_registry_returns_none_for_unknown():
-    extractor = get_extractor_for_source("unknown_ext")
+    source = HouseSource()
+    extractor = get_extractor_for_source(source, "unknown_ext")
     assert extractor is None
 
 def test_pdf_extractor_stub():
@@ -22,9 +25,10 @@ def test_pdf_extractor_stub():
     assert extractor.supports_file_type("csv") is False
 
     file_path = Path("/fake/path.pdf")
-    result = extractor.extract(file_path, "house")
+    source = HouseSource()
+    result = extractor.extract(file_path, source)
 
-    assert result.source == "house"
+    assert result.source == source
     assert result.file_path == file_path
     assert result.success is True
     assert result.extracted_text == "PDF extraction not implemented"
@@ -62,8 +66,9 @@ def test_extract_cli_command(tmp_path, monkeypatch, capsys):
     assert len(pdf_results) == 2
     for r in pdf_results:
         assert r["success"] is True
-        assert r["extracted_text"] == "PDF extraction not implemented"
+        assert r["message"] == "PDF extraction not implemented"
+        assert r["source"] in ["house", "senate"]
 
     assert len(zip_results) == 1
     assert zip_results[0]["success"] is False
-    assert "No extractor found" in zip_results[0]["error"]
+    assert "No extractor found" in zip_results[0]["message"]

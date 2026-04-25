@@ -7,7 +7,7 @@ from pathlib import Path
 
 from transparencyx.config import get_raw_data_dir
 
-class Source(ABC):
+class DisclosureSource(ABC):
     """
     Abstract base class for a congressional data source.
     """

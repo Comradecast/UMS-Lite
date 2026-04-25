@@ -3,9 +3,9 @@ Senate eFD Source.
 """
 from typing import List
 from pathlib import Path
-from transparencyx.sources.base import Source
+from transparencyx.sources.base import DisclosureSource
 
-class SenateSource(Source):
+class SenateSource(DisclosureSource):
     @property
     def chamber_name(self) -> str:
         return "senate"

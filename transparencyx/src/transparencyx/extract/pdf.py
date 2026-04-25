@@ -3,6 +3,7 @@ PDF extraction stub.
 """
 from pathlib import Path
 from transparencyx.extract.base import Extractor, ExtractionResult
+from transparencyx.sources.base import DisclosureSource
 
 
 class PDFExtractor(Extractor):
@@ -12,7 +13,7 @@ class PDFExtractor(Extractor):
     def supports_file_type(self, file_type: str) -> bool:
         return file_type.lower() == "pdf"
 
-    def extract(self, file_path: Path, source: str) -> ExtractionResult:
+    def extract(self, file_path: Path, source: DisclosureSource) -> ExtractionResult:
         """
         Returns a placeholder extraction result without actually parsing the PDF.
         """

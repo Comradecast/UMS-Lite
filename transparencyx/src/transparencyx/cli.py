@@ -96,42 +96,50 @@ def main():
             print(f"No raw data directory found at {search_dir}")
             sys.exit(0)
 
-        # Iterate over files in the target directory (recursive)
+        sources_dict = get_registered_sources()
         results = []
+
+        # Iterate over files in the target directory (recursive)
         for file_path in search_dir.rglob("*"):
             if file_path.is_file():
                 # Derive file type from extension without the leading dot
                 file_ext = file_path.suffix.lstrip(".")
 
-                # We need a source identifier. In real usage, this might be embedded in DB or path.
-                # Here we can derive it from the path components (e.g. "house" or "senate").
-                # This assumes data/raw/{chamber}/...
-                chamber_source = "unknown"
+                # Derive source from path components assuming data/raw/{chamber}/...
+                chamber_name = "unknown"
                 try:
-                    # search_dir could be data/raw or data/raw/house
-                    # RAW_DATA_DIR is .../data/raw
                     rel_path = file_path.relative_to(RAW_DATA_DIR)
-                    chamber_source = rel_path.parts[0]
+                    chamber_name = rel_path.parts[0]
                 except ValueError:
                     pass
 
-                extractor = get_extractor_for_source(file_ext)
-                if extractor:
-                    result = extractor.extract(file_path, chamber_source)
+                source = sources_dict.get(chamber_name)
+
+                if not source:
                     results.append({
-                        "source": result.source,
+                        "file_path": str(file_path),
+                        "source": chamber_name,
+                        "success": False,
+                        "message": f"Unknown source directory: {chamber_name}"
+                    })
+                    continue
+
+                extractor = get_extractor_for_source(source, file_ext)
+                if extractor:
+                    result = extractor.extract(file_path, source)
+                    message = result.extracted_text if result.success else result.error
+                    results.append({
                         "file_path": str(result.file_path),
+                        "source": result.source.chamber_name,
                         "success": result.success,
-                        "extracted_text": result.extracted_text,
-                        "error": result.error
+                        "message": message
                     })
                 else:
                     results.append({
-                        "source": chamber_source,
                         "file_path": str(file_path),
+                        "source": source.chamber_name,
                         "success": False,
-                        "extracted_text": None,
-                        "error": f"No extractor found for file type: {file_ext}"
+                        "message": f"No extractor found for file type: {file_ext}"
                     })
 
         print(json.dumps(results, indent=2))
