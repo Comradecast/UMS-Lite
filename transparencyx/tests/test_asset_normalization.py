@@ -1,8 +1,20 @@
 import pytest
 from transparencyx.parse.sections import Section
-from transparencyx.normalize.assets import extract_asset_candidates, insert_normalized_assets, process_assets_for_disclosure
+from transparencyx.normalize.assets import extract_asset_candidates, insert_normalized_assets, process_assets_for_disclosure, clean_asset_name
 from transparencyx.db.database import get_connection, initialize_database
 
+
+def test_clean_asset_name():
+    # Trailing punctuation
+    assert clean_asset_name("Apple Inc -") == "Apple Inc"
+    assert clean_asset_name("Apple Inc:") == "Apple Inc"
+    assert clean_asset_name("Apple Inc -:") == "Apple Inc"
+
+    # Whitespace collapse
+    assert clean_asset_name("  Apple    Inc  ") == "Apple Inc"
+
+    # Combined
+    assert clean_asset_name("  Google  Corp  - :  ") == "Google Corp"
 
 def test_extract_asset_candidates_success():
     raw_text = """
@@ -12,24 +24,25 @@ def test_extract_asset_candidates_success():
     Google Corp       Over $50,000,000
     Treasury Bonds    None
     Checking Account  N/A
+    Duplicate Asset   $500
+    Duplicate Asset   $500
     """
     section = Section(name="ASSETS", start_index=0, end_index=100, raw_text=raw_text)
 
     candidates = extract_asset_candidates(section)
 
-    assert len(candidates) == 4
+    # We should only get lines with $ or Over $, and None/N/A should be skipped.
+    # The duplicate should be removed.
+    assert len(candidates) == 3
 
-    assert candidates[0].asset_name == "Apple Inc Stock"
-    assert candidates[0].original_value_range == "$1,001 - $15,000"
+    assert candidates[0].cleaned_name == "Apple Inc Stock"
+    assert candidates[0].value_range_text == "$1,001 - $15,000"
 
-    assert candidates[1].asset_name == "Google Corp"
-    assert candidates[1].original_value_range == "Over $50,000,000"
+    assert candidates[1].cleaned_name == "Google Corp"
+    assert candidates[1].value_range_text == "Over $50,000,000"
 
-    assert candidates[2].asset_name == "Treasury Bonds"
-    assert candidates[2].original_value_range == "None"
-
-    assert candidates[3].asset_name == "Checking Account"
-    assert candidates[3].original_value_range == "N/A"
+    assert candidates[2].cleaned_name == "Duplicate Asset"
+    assert candidates[2].value_range_text == "$500"
 
 def test_extract_asset_candidates_wrong_section():
     raw_text = "Apple Inc Stock   $1,001 - $15,000"
@@ -68,30 +81,54 @@ def test_insert_normalized_assets(test_db):
     raw_text = """
     Apple Inc Stock   $1,001 - $15,000
     Missing bounds    $100 to $200
+    Garbage line      $GARBAGE
     """
     section = Section(name="ASSETS", start_index=0, end_index=100, raw_text=raw_text)
     candidates = extract_asset_candidates(section)
 
     inserted = insert_normalized_assets(db_path, raw_id, pol_id, candidates)
 
-    # Missing bounds won't fail closed if range parser handles it by returning Nones,
-    # it still inserts what it can.
-    assert inserted == 2
+    assert inserted == 3
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM normalized_assets ORDER BY id ASC")
         rows = cursor.fetchall()
 
-        assert len(rows) == 2
+        assert len(rows) == 3
 
         assert rows[0]["asset_name"] == "Apple Inc Stock"
         assert rows[0]["original_value_range"] == "$1,001 - $15,000"
         assert rows[0]["value_min"] == 1001
         assert rows[0]["value_max"] == 15000
+        assert rows[0]["confidence"] == "medium"
+        assert rows[0]["asset_category"] == "unknown"
 
         assert rows[1]["asset_name"] == "Missing bounds"
         assert rows[1]["value_min"] is None
+        assert rows[1]["confidence"] == "low"
+
+        assert rows[2]["asset_name"] == "Garbage line"
+        assert rows[2]["value_min"] is None
+        assert rows[2]["confidence"] == "low"
+
+def test_insert_prevents_db_duplicates(test_db):
+    db_path, pol_id, raw_id = test_db
+
+    raw_text = """
+    Apple Inc Stock   $1,001 - $15,000
+    """
+    section = Section(name="ASSETS", start_index=0, end_index=100, raw_text=raw_text)
+
+    # First insert
+    candidates1 = extract_asset_candidates(section)
+    inserted1 = insert_normalized_assets(db_path, raw_id, pol_id, candidates1)
+    assert inserted1 == 1
+
+    # Second insert of same candidate should be skipped
+    candidates2 = extract_asset_candidates(section)
+    inserted2 = insert_normalized_assets(db_path, raw_id, pol_id, candidates2)
+    assert inserted2 == 0
 
 def test_process_assets_pipeline(test_db):
     db_path, pol_id, raw_id = test_db
@@ -102,6 +139,7 @@ def test_process_assets_pipeline(test_db):
     ASSETS
     Asset 1  $1,001 - $15,000
     Asset 2  Over $50,000,000
+    Asset 3  None
 
     INCOME
     Income 1  $1,001 - $15,000
@@ -117,4 +155,5 @@ def test_process_assets_pipeline(test_db):
 
         assert "Asset 1" in names
         assert "Asset 2" in names
+        assert "Asset 3" not in names
         assert "Income 1" not in names

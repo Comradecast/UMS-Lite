@@ -17,13 +17,33 @@ class AssetCandidate:
     """
     raw_line: str
     asset_name: str
+    cleaned_name: str
     original_value_range: Optional[str]
+    value_range_text: Optional[str]
+
+
+def clean_asset_name(raw_name: str) -> str:
+    """
+    Cleans an asset name deterministically without guessing or inference.
+    - Strips leading/trailing whitespace
+    - Collapses multiple spaces
+    - Removes trailing dashes or colons
+    - Restrips
+    """
+    # Collapse whitespace and strip
+    cleaned = " ".join(raw_name.split())
+
+    # Remove trailing punctuation
+    while cleaned.endswith("-") or cleaned.endswith(":") or cleaned.endswith(" "):
+        cleaned = cleaned[:-1].strip()
+
+    return cleaned
 
 
 def extract_asset_candidates(section: Section) -> List[AssetCandidate]:
     """
     Extracts deterministic asset candidates from a section labeled 'ASSETS'.
-    Only identifies lines containing range indicators like '$', 'Over', 'None', 'N/A'.
+    Only identifies lines containing range indicators like '$' or 'Over $'.
     """
     if section.name != "ASSETS":
         return []
@@ -31,44 +51,46 @@ def extract_asset_candidates(section: Section) -> List[AssetCandidate]:
     candidates = []
     lines = section.raw_text.split("\n")
 
+    seen = set()
+
     for line in lines:
         raw_line = line.strip()
+        # Collapse whitespace for the line before processing so range matching is clean,
+        # but the prompt said "split raw_text into lines, normalize whitespace per line"
+        raw_line = " ".join(raw_line.split())
+
         if not raw_line:
             continue
 
-        # Detect simple value range markers.
         lower_line = raw_line.lower()
-        has_dollar = "$" in raw_line
-        has_over = "over $" in lower_line
-        has_none = "none" in lower_line.split()  # Exact word match to avoid substring false positives
-        has_na = "n/a" in lower_line.split()
 
-        if has_dollar or has_over or has_none or has_na:
-            # Determine split point for asset_name
-            split_idx = -1
+        # Only line containing "Over $" or "$" are valid
+        split_idx = -1
 
-            if has_dollar:
-                split_idx = raw_line.find("$")
-                # Handle "Over $"
-                if "over" in lower_line and split_idx > 4:
-                    if raw_line[split_idx-5:split_idx].lower() == "over ":
-                        split_idx -= 5
-            elif has_none:
-                # Find where the word "None" or "none" is
-                split_idx = lower_line.find("none")
-            elif has_na:
-                split_idx = lower_line.find("n/a")
+        if "over $" in lower_line:
+            # Range starts at "Over $"
+            # Need to find the exact case-preserving index of "over $"
+            split_idx = lower_line.find("over $")
+        elif "$" in lower_line:
+            split_idx = lower_line.find("$")
 
-            if split_idx != -1:
-                asset_name = raw_line[:split_idx].strip()
-                range_str = raw_line[split_idx:].strip()
+        if split_idx != -1:
+            asset_name = raw_line[:split_idx].strip()
+            range_str = raw_line[split_idx:].strip()
 
-                # If there's no asset name before the value, it's likely a malformed/continued line
-                if asset_name:
+            cleaned_name = clean_asset_name(asset_name)
+
+            if cleaned_name and range_str:
+                # Deduplicate candidates in memory
+                key = (cleaned_name, range_str)
+                if key not in seen:
+                    seen.add(key)
                     candidates.append(AssetCandidate(
                         raw_line=raw_line,
                         asset_name=asset_name,
-                        original_value_range=range_str
+                        cleaned_name=cleaned_name,
+                        original_value_range=range_str,
+                        value_range_text=range_str
                     ))
 
     return candidates
@@ -90,13 +112,34 @@ def insert_normalized_assets(
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
 
+        # Build deduplication set from existing DB records for this raw_disclosure_id
+        cursor.execute(
+            """
+            SELECT asset_name, original_value_range
+            FROM normalized_assets
+            WHERE raw_disclosure_id = ?
+            """,
+            (raw_disclosure_id,)
+        )
+        existing_assets = set((row["asset_name"], row["original_value_range"]) for row in cursor.fetchall())
+
         for candidate in candidates:
-            # Fail closed: skip if no value range
-            if not candidate.original_value_range:
+            # Fail closed: skip if no value range or no cleaned name
+            if not candidate.value_range_text or not candidate.cleaned_name:
+                continue
+
+            # Prevent duplicate inserts
+            key = (candidate.cleaned_name, candidate.value_range_text)
+            if key in existing_assets:
                 continue
 
             # Parse the range
-            parsed_range = parse_range(candidate.original_value_range)
+            parsed_range = parse_range(candidate.value_range_text)
+
+            # Confidence rules
+            confidence = "low"
+            if candidate.cleaned_name and (parsed_range.minimum is not None or parsed_range.maximum is not None or parsed_range.midpoint is not None):
+                confidence = "medium"
 
             cursor.execute(
                 """
@@ -116,16 +159,17 @@ def insert_normalized_assets(
                 (
                     raw_disclosure_id,
                     politician_id,
-                    candidate.asset_name,
+                    candidate.cleaned_name,
                     "unknown",  # per requirements
                     parsed_range.original_label,
                     parsed_range.minimum,
                     parsed_range.maximum,
                     parsed_range.midpoint,
-                    "low",      # per requirements
+                    confidence,
                     now
                 )
             )
+            existing_assets.add(key)
             inserted_count += 1
 
     return inserted_count
